@@ -285,6 +285,7 @@ Error OnDiskOutputFile::tryToCreateTemporary(std::optional<int> &FD) {
 
   return createDirectoriesOnDemand(OutputPath, Config, [&]() -> Error {
     int NewFD;
+		sys::fs::OpenFlags OF = generateFlagsFromConfig(Config);
     SmallString<128> UniquePath;
     sys::fs::OpenFlags OF = generateFlagsFromConfig(Config);
     if (std::error_code EC =
