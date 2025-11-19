@@ -285,11 +285,10 @@ Error OnDiskOutputFile::tryToCreateTemporary(std::optional<int> &FD) {
 
   return createDirectoriesOnDemand(OutputPath, Config, [&]() -> Error {
     int NewFD;
-		sys::fs::OpenFlags OF = generateFlagsFromConfig(Config);
     SmallString<128> UniquePath;
     sys::fs::OpenFlags OF = generateFlagsFromConfig(Config);
     if (std::error_code EC =
-            sys::fs::createUniqueFile(ModelPath, NewFD, UniquePath, OF))
+            sys::fs::createUniqueFile(ModelPath, NewFD, UniquePath))
       return make_error<TempFileOutputError>(ModelPath, OutputPath, EC);
 
     if (Config.getDiscardOnSignal())
@@ -333,7 +332,13 @@ Error OnDiskOutputFile::initializeFile(std::optional<int> &FD) {
   // Not using a temporary file. Open the final output file.
   return createDirectoriesOnDemand(OutputPath, Config, [&]() -> Error {
     int NewFD;
-    sys::fs::OpenFlags OF = generateFlagsFromConfig(Config);
+    sys::fs::OpenFlags OF = sys::fs::OF_None;
+    if (Config.getTextWithCRLF())
+      OF |= sys::fs::OF_TextWithCRLF;
+    else if (Config.getText())
+      OF |= sys::fs::OF_Text;
+    if (Config.getAppend())
+      OF |= sys::fs::OF_Append;
     if (std::error_code EC = sys::fs::openFileForWrite(
             OutputPath, NewFD, sys::fs::CD_CreateAlways, OF))
       return convertToOutputError(OutputPath, EC);
