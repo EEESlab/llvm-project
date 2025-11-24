@@ -1129,7 +1129,6 @@ void SystemZAsmPrinter::emitEndOfAsmFile(Module &M) {
                                                   : MCSA_Global);
         OutStreamer->emitSymbolAttribute(Sym, isa<Function>(GO) ? MCSA_Code
                                                                 : MCSA_Data);
-        llvm::dbgs() << "TONY emitting " << Sym->getName() << "\n";
       }
     }
     OutStreamer->switchSection(
