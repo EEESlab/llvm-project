@@ -3783,12 +3783,7 @@ bool SIRegisterInfo::isAGPR(const MachineRegisterInfo &MRI,
 
 unsigned SIRegisterInfo::getRegPressureLimit(const TargetRegisterClass *RC,
                                              MachineFunction &MF) const {
-  unsigned MinWGSizeOcc = ST.getOccupancyWithWorkGroupSizes(MF).first;
-  unsigned MaxWavesPerEU = ST.getWavesPerEU(MF.getFunction()).second;
-  // The occupancy is bound by the amdgpu-waves-per-eu value specified by the
-  // user. Using a small value for amdgpu-waves-per-eu, should yield bigger
-  // register pressure limits (if resources allow it).
-  unsigned MinOcc = std::min(MinWGSizeOcc, MaxWavesPerEU);
+  unsigned MinOcc = ST.getWavesPerEU(MF.getFunction()).first;
 
   switch (RC->getID()) {
   default:
