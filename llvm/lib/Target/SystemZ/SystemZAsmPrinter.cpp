@@ -1127,14 +1127,13 @@ void SystemZAsmPrinter::emitEndOfAsmFile(Module &M) {
         OutStreamer->emitSymbolAttribute(Sym, GO.hasExternalWeakLinkage()
                                                   ? MCSA_WeakReference
                                                   : MCSA_Global);
-        OutStreamer->emitSymbolAttribute(Sym, isa<Function>(GO) ? MCSA_Code
-                                                                : MCSA_Data);
+        OutStreamer->emitSymbolAttribute(Sym, isa<Function>(GO) ? MCSA_ELF_TypeFunction
+                                                                : MCSA_ELF_TypeObject);
       }
     }
     OutStreamer->switchSection(
         static_cast<MCSectionGOFF *>(getObjFileLowering().getTextSection())
             ->getParent());
-    getTargetStreamer()->emitExterns();
     OutStreamer->popSection();
   }
   emitAttributes(M);
@@ -1734,7 +1733,7 @@ void SystemZAsmPrinter::emitPPA2(Module &M) {
 void SystemZAsmPrinter::emitGlobalVariable(const GlobalVariable *GV) {
   if (TM.getTargetTriple().isOSzOS()) {
     auto *Sym = getSymbol(GV);
-    OutStreamer->emitSymbolAttribute(Sym, MCSA_Data);
+    OutStreamer->emitSymbolAttribute(Sym, MCSA_ELF_TypeObject);
   }
 
   AsmPrinter::emitGlobalVariable(GV);
@@ -1761,7 +1760,7 @@ const MCExpr *SystemZAsmPrinter::lowerConstant(const Constant *CV,
       Sym = getSymbol(GV);
 
     if (IsFunc) {
-      OutStreamer->emitSymbolAttribute(Sym, MCSA_Code);
+      OutStreamer->emitSymbolAttribute(Sym, MCSA_ELF_TypeFunction);
       if (FV->hasExternalLinkage()) {
         return MCSpecifierExpr::create(MCSymbolRefExpr::create(Sym, OutContext),
                                        SystemZ::S_VCon, OutContext);
@@ -1778,7 +1777,7 @@ const MCExpr *SystemZAsmPrinter::lowerConstant(const Constant *CV,
           MCConstantExpr::create(Disp, OutContext), OutContext);
     }
     if (Sym) {
-      OutStreamer->emitSymbolAttribute(Sym, MCSA_Data);
+      OutStreamer->emitSymbolAttribute(Sym, MCSA_ELF_TypeObject);
       return MCSymbolRefExpr::create(Sym, OutContext);
     }
   }
