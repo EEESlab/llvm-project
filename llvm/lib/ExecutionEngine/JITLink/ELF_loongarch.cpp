@@ -216,7 +216,7 @@ private:
         return makeAlignmentError(orc::ExecutorAddr(FixupAddress), Value, 4, E);
 
       uint32_t Pcaddu12i = *(little32_t *)FixupPtr;
-      uint32_t Hi20 = extractBits(Value + (1 << 17), /*Hi=*/31, /*Lo=*/12) << 5;
+      uint32_t Hi20 = extractBits(Value, /*Hi=*/31, /*Lo=*/12) << 5;
       *(little32_t *)FixupPtr = Pcaddu12i | Hi20;
       uint32_t Jirl = *(little32_t *)(FixupPtr + 4);
       uint32_t Lo10 = extractBits(Value, /*Hi=*/11, /*Lo=*/2) << 10;
