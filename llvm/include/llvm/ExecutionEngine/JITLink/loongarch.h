@@ -182,7 +182,7 @@ enum EdgeKind_loongarch : Edge::Kind {
   ///   - The result of the fixup expression must fit into an int20 otherwise an
   ///     out-of-range error will be returned.
   ///
-  PCAdd20,
+  PCAddHi20,
 
   /// The lower 12 bits of the offset from the paired PCADDU12I (the initial
   /// target) to the final target it points to.
@@ -192,7 +192,7 @@ enum EdgeKind_loongarch : Edge::Kind {
   /// Fixup expression:
   ///   Fixup <- (FinalTarget - InitialTarget) & 0xfff : int12
   ///
-  PCAdd12,
+  PCAddLo12,
 
   /// A GOT entry getter/constructor, transformed to Page20 pointing at the GOT
   /// entry for the original target.
@@ -230,10 +230,10 @@ enum EdgeKind_loongarch : Edge::Kind {
   ///
   RequestGOTAndTransformToPageOffset12,
 
-  /// A GOT entry getter/constructor, transformed to PCAdd20 pointing at the GOT
-  /// entry for the original target.
+  /// A GOT entry getter/constructor, transformed to PCAddHi20 pointing at the
+  /// GOT entry for the original target.
   ///
-  /// Indicates that this edge should be transformed into a PCAdd20 targeting
+  /// Indicates that this edge should be transformed into a PCAddHi20 targeting
   /// the GOT entry for the edge's current target, maintaining the same addend.
   /// A GOT entry for the target should be created if one does not already
   /// exist.
@@ -248,7 +248,7 @@ enum EdgeKind_loongarch : Edge::Kind {
   ///   - *ASSERTION* Failure to handle edges of this kind prior to the fixup
   ///     phase will result in an assert/unreachable during the fixup phase.
   ///
-  RequestGOTAndTransformToPCAdd20,
+  RequestGOTAndTransformToPCAddHi20,
 
   /// A 30-bit PC-relative call.
   ///
@@ -449,11 +449,11 @@ inline Symbol &createAnonymousPointerJumpStub(LinkGraph &G,
       StubSection, getStubBlockContent(G), orc::ExecutorAddr(), 4, 0);
   Symbol &StubSymbol =
       G.addAnonymousSymbol(StubContentBlock, 0, StubEntrySize, true, false);
-  StubContentBlock.addEdge(G.getPointerSize() == 8 ? Page20 : PCAdd20, 0,
+  StubContentBlock.addEdge(G.getPointerSize() == 8 ? Page20 : PCAddHi20, 0,
                            PointerSymbol, 0);
-  StubContentBlock.addEdge(G.getPointerSize() == 8 ? PageOffset12 : PCAdd12, 4,
-                           G.getPointerSize() == 8 ? PointerSymbol : StubSymbol,
-                           0);
+  StubContentBlock.addEdge(
+      G.getPointerSize() == 8 ? PageOffset12 : PCAddLo12, 4,
+      G.getPointerSize() == 8 ? PointerSymbol : StubSymbol, 0);
   return StubSymbol;
 }
 
@@ -471,8 +471,8 @@ public:
     case RequestGOTAndTransformToPageOffset12:
       KindToSet = PageOffset12;
       break;
-    case RequestGOTAndTransformToPCAdd20:
-      KindToSet = PCAdd20;
+    case RequestGOTAndTransformToPCAddHi20:
+      KindToSet = PCAddHi20;
       break;
     default:
       return false;

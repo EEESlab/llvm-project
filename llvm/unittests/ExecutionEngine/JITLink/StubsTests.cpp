@@ -139,9 +139,9 @@ TEST(StubsTest, StubsGeneration_loongarch32) {
             2U);
   auto &HighEdge = *StubSym.getBlock().edges().begin();
   auto &LowEdge = *++StubSym.getBlock().edges().begin();
-  EXPECT_EQ(HighEdge.getKind(), loongarch::PCAdd20);
+  EXPECT_EQ(HighEdge.getKind(), loongarch::PCAddHi20);
   EXPECT_EQ(&HighEdge.getTarget(), &PointerSym);
-  EXPECT_EQ(LowEdge.getKind(), loongarch::PCAdd12);
+  EXPECT_EQ(LowEdge.getKind(), loongarch::PCAddLo12);
   EXPECT_EQ(&LowEdge.getTarget(), &StubSym);
   EXPECT_EQ(StubSym.getBlock().getContent(),
             ArrayRef<char>(PointerJumpStubContent));
