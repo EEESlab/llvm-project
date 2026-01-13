@@ -49,7 +49,7 @@ private:
   Error gatherLoongArchPCAdd20(LinkGraph &G) {
     for (Block *B : G.blocks())
       for (Edge &E : B->edges())
-        if (E.getKind() == PCAdd20)
+        if (E.getKind() == PCAddHi20)
           RelPCAdd20Map[{B, E.getOffset()}] = &E;
 
     return Error::success();
@@ -57,8 +57,8 @@ private:
 
   Expected<const Edge &> getLoongArchPCAdd20(const Edge &E) const {
     using namespace loongarch;
-    assert((E.getKind() == PCAdd12) &&
-           "Can only have high relocation for PCAdd12");
+    assert((E.getKind() == PCAddLo12) &&
+           "Can only have high relocation for PCAddLo12");
 
     const Symbol &Sym = E.getTarget();
     const Block &B = Sym.getBlock();
@@ -68,8 +68,8 @@ private:
     if (It != RelPCAdd20Map.end())
       return *It->second;
 
-    return make_error<JITLinkError>("No PCAdd20 relocation type be found "
-                                    "for PCAdd12 relocation type");
+    return make_error<JITLinkError>("No PCAddHi20 relocation type be found "
+                                    "for PCAddLo12 relocation type");
   }
 
   /// Apply fixup expression for edge to block content.
@@ -181,7 +181,7 @@ private:
       *(ulittle32_t *)FixupPtr = RawInstr | Imm11_0;
       break;
     }
-    case PCAdd20: {
+    case PCAddHi20: {
       uint64_t Target = TargetAddress + Addend;
       int64_t Delta = Target - FixupAddress + 0x800;
 
@@ -193,7 +193,7 @@ private:
       *(little32_t *)FixupPtr = RawInstr | Imm31_12;
       break;
     }
-    case PCAdd12: {
+    case PCAddLo12: {
       auto RelPCAdd20 = getLoongArchPCAdd20(E);
       if (!RelPCAdd20)
         return RelPCAdd20.takeError();
@@ -639,12 +639,12 @@ private:
     case ELF::R_LARCH_ALIGN:
       return AlignRelaxable;
     case ELF::R_LARCH_PCADD_HI20:
-      return PCAdd20;
+      return PCAddHi20;
     case ELF::R_LARCH_PCADD_LO12:
     case ELF::R_LARCH_GOT_PCADD_LO12:
-      return PCAdd12;
+      return PCAddLo12;
     case ELF::R_LARCH_GOT_PCADD_HI20:
-      return RequestGOTAndTransformToPCAdd20;
+      return RequestGOTAndTransformToPCAddHi20;
     }
 
     return make_error<JITLinkError>(
