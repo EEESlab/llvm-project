@@ -53,6 +53,11 @@ void buildReadAnyLane(MachineIRBuilder &B, Register SgprDst, Register VgprSrc,
                       const RegisterBankInfo &RBI);
 void buildReadFirstLane(MachineIRBuilder &B, Register SgprDst, Register VgprSrc,
                         const RegisterBankInfo &RBI);
+
+// LLT that matches size of some VGPR register class.
+bool isVgprBRC(LLT Ty, const MachineRegisterInfo &MRI);
+// LLT that matches size of some SGPR register class.
+bool isSgprBRC(LLT Ty, const MachineRegisterInfo &MRI);
 }
 }
 

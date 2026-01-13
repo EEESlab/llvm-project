@@ -8,6 +8,7 @@
 
 #include "AMDGPUGlobalISelUtils.h"
 #include "AMDGPURegisterBankInfo.h"
+#include "GCNSubtarget.h"
 #include "MCTargetDesc/AMDGPUMCTargetDesc.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/CodeGen/GlobalISel/GISelValueTracking.h"
@@ -185,4 +186,21 @@ void AMDGPU::buildReadFirstLane(MachineIRBuilder &B, Register SgprDst,
         return B.buildIntrinsic(Intrinsic::amdgcn_readfirstlane, SgprDst)
             .addReg(VgprSrc);
       });
+}
+
+bool AMDGPU::isVgprBRC(LLT Ty, const MachineRegisterInfo &MRI) {
+  auto *TRI = static_cast<const SIRegisterInfo *>(MRI.getTargetRegisterInfo());
+  if (TRI->getVGPRClassForBitWidth(Ty.getSizeInBits()))
+    return true;
+  return false;
+}
+
+bool AMDGPU::isSgprBRC(LLT Ty, const MachineRegisterInfo &MRI) {
+  auto *TRI = static_cast<const SIRegisterInfo *>(MRI.getTargetRegisterInfo());
+  // There is no 16 bit SGPR register class. Size check is required since
+  // getSGPRClassForBitWidth returns SReg_32RegClass for Size 16.
+  unsigned Size = Ty.getSizeInBits();
+  if (Size >= 32 && TRI->getSGPRClassForBitWidth(Size))
+    return true;
+  return false;
 }
