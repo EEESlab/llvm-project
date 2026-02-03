@@ -65,6 +65,184 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
   return res;
 }
 
+
+//===----------------------------------------------------------------------===//
+// Emit OpenMP `omp.for` directive
+//
+// This function lowers a Clang `OMPForDirective` into an MLIR OpenMP
+// `omp.wsloop` operation. The loop body and iteration space are emitted
+// separately by visiting the associated `ForStmt`.
+//===----------------------------------------------------------------------===//
+mlir::LogicalResult
+CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
+  //getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPForDirective");
+
+  // Assume success unless an error is encountered while emitting the body.
+  mlir::LogicalResult res = mlir::success();
+
+  // Separate begin/end locations for more precise tracking
+  mlir::Location begin = getLoc(s.getBeginLoc());
+  // mlir::Location end = getLoc(s.getEndLoc()); -> no need for wsloop operation, since it does not need yield or terminator
+
+  // OpenMP `for` directives wrap the associated loop inside a CapturedStmt.
+  // Extract the underlying canonical `for` loop.
+  const CapturedStmt *capturedStmt = s.getInnermostCapturedStmt();
+  const ForStmt *forStmt = dyn_cast<ForStmt>(capturedStmt->getCapturedStmt());
+
+  // Loop bounds extracted from the Clang AST.
+  //
+  // IMPORTANT:
+  // These values are materialized *outside* of the `omp.wsloop` region so
+  // that they dominate the loop nest emitted later. This matches the
+  // expectations of the OpenMP dialect, where loop bounds are SSA values
+  // available to the loop_nest.
+  mlir::Value lowerBound;
+  mlir::Value upperBound;
+  mlir::Value step;
+  bool inclusive = false; // true for <= or >= loop conditions
+
+  if (forStmt) {
+    //===------------------------------------------------------------------===//
+    // 1. Lower bound
+    //===------------------------------------------------------------------===//
+    if (const auto *declStmt = dyn_cast<DeclStmt>(forStmt->getInit())) {
+      if (const auto *varDecl = dyn_cast<VarDecl>(declStmt->getSingleDecl())) {
+        if (varDecl->hasInit()) {
+          // Try constant first
+          if (const auto *intLit = dyn_cast<IntegerLiteral>(varDecl->getInit()->IgnoreImpCasts())) {
+            lowerBound = mlir::arith::ConstantIndexOp::create(builder, begin, intLit->getValue().getSExtValue());
+          } else {   
+            // For non-constant bounds, emit as CIR value
+            mlir::Value rawLB = emitScalarExpr(varDecl->getInit());
+            auto cirIntType = mlir::dyn_cast<cir::IntType>(rawLB.getType());
+            mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
+            
+            auto castOpLB =
+                mlir::UnrealizedConversionCastOp::create(
+                    builder, begin,
+                    mlir::TypeRange{stdIntTy},
+                    mlir::ValueRange{rawLB});
+
+            lowerBound = mlir::arith::IndexCastOp::create(
+                builder, begin,
+                builder.getIndexType(),
+                castOpLB.getResult(0));
+          }
+        }
+      }
+    }
+
+    //===------------------------------------------------------------------===//
+    // 2. Upper bound and comparison kind
+    //===------------------------------------------------------------------===//
+    if (forStmt->getCond()) {
+      if (const auto *binOp = dyn_cast<BinaryOperator>(forStmt->getCond())) {
+        // Try constant first
+        if (const auto *intLit = dyn_cast<IntegerLiteral>(binOp->getRHS()->IgnoreImpCasts())) {
+          int64_t boundVal = intLit->getValue().getSExtValue();
+          upperBound = mlir::arith::ConstantIndexOp::create(builder, begin, boundVal);
+        } else {
+          // For non-constant bounds, emit as CIR value
+          mlir::Value rawBound = emitScalarExpr(binOp->getRHS());
+          auto cirIntType = mlir::dyn_cast<cir::IntType>(rawBound.getType());
+          mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
+          auto castOp = builder.create<mlir::UnrealizedConversionCastOp>(
+              begin, stdIntTy, rawBound);
+          upperBound = mlir::arith::IndexCastOp::create(
+              builder, begin, builder.getIndexType(), castOp.getResult(0));
+        }
+        BinaryOperatorKind opKind = binOp->getOpcode();
+        inclusive = (opKind == BO_LE || opKind == BO_GE);
+      }
+    }
+
+    //===------------------------------------------------------------------===//
+    // 3. Step
+    //===------------------------------------------------------------------===//
+    if (forStmt->getInc()) {
+      if (const auto *unaryOp = dyn_cast<UnaryOperator>(forStmt->getInc())) {
+        int64_t val = unaryOp->isIncrementOp() ? 1 : -1;
+        step = mlir::arith::ConstantIndexOp::create(builder, begin, val);
+      } else if (const auto *binOp = dyn_cast<BinaryOperator>(forStmt->getInc())) {
+        Expr *stepExpr = nullptr;
+        if (binOp->isCompoundAssignmentOp()) {
+          stepExpr = binOp->getRHS();
+        } else if (binOp->isAssignmentOp()) {
+          if (auto *subBinOp = dyn_cast<BinaryOperator>(binOp->getRHS()->IgnoreImpCasts())) {
+            stepExpr = subBinOp->getRHS();
+          }
+        }
+
+        if (stepExpr) {
+          // Try constant first
+          if (const auto *intLit = dyn_cast<IntegerLiteral>(stepExpr->IgnoreImpCasts())) {
+            step = mlir::arith::ConstantIndexOp::create(builder, begin, intLit->getValue().getSExtValue());
+          } else {
+            mlir::Value rawStep = emitScalarExpr(stepExpr);
+            auto cirIntType = mlir::dyn_cast<cir::IntType>(rawStep.getType());
+            mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
+
+            auto castOpStep =
+                mlir::UnrealizedConversionCastOp::create(
+                    builder, begin,
+                    mlir::TypeRange{stdIntTy},
+                    mlir::ValueRange{rawStep});
+
+            step = mlir::arith::IndexCastOp::create(
+                builder, begin,
+                builder.getIndexType(),
+                castOpStep.getResult(0));
+          }
+        }
+      }
+    }
+
+    // Default to a unit step if no increment expression was recognized.
+    if (!step) {
+      step = mlir::arith::ConstantIndexOp::create(builder, begin, 1);
+    }
+  }
+
+  // Store the extracted bounds so that `emitForStmt` can construct the
+  // corresponding `omp.loop_nest` inside the wsloop region. Definition added inside CIRGenFunction.h
+  currentOMPLoopBounds = LoopBounds{lowerBound, upperBound, step, inclusive};
+
+  // Create the OpenMP worksharing loop operation using the simple builder
+  // Similar to how ParallelOp is created in upstream
+  llvm::SmallVector<mlir::Type> retTy;
+  llvm::SmallVector<mlir::Value> operands;
+
+  auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
+
+  // Handle clauses, it does not have a template specialization for WsloopOp (to add?)
+  // emitOpenMPClauses(wsloopOp, s.clauses());
+
+  // TODO: add check for unsupported clauses
+
+  // Populate the wsloop region by emitting the associated `for` statement.
+  mlir::Region &region = wsloopOp.getRegion();
+  mlir::Block *block = new mlir::Block();
+  region.push_back(block);
+  
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  builder.setInsertionPointToStart(block);
+
+  // Don't lower the captured statement directly since this will be
+  // special-cased depending on the kind of OpenMP directive.
+  // Extract the actual body from the CapturedStmt and emit it directly.
+  const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_for);
+  const Stmt *bodyStmt = cs->getCapturedStmt();
+
+  if (emitStmt(bodyStmt, /*useCurrentScope=*/false).failed()) {
+    res = mlir::failure();
+  }
+
+  // Clear loop-bound state after emitting the loop body.
+  currentOMPLoopBounds = std::nullopt; // Clear
+
+  return mlir::failure();
+}
+
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskwaitDirective(const OMPTaskwaitDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPTaskwaitDirective");
@@ -110,11 +288,6 @@ CIRGenFunction::emitOMPUnrollDirective(const OMPUnrollDirective &s) {
 mlir::LogicalResult
 CIRGenFunction::emitOMPFuseDirective(const OMPFuseDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPFuseDirective");
-  return mlir::failure();
-}
-mlir::LogicalResult
-CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
-  getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPForDirective");
   return mlir::failure();
 }
 mlir::LogicalResult
