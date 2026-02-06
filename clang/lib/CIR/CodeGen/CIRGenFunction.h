@@ -68,6 +68,7 @@ private:
     mlir::Value lowerBound;
     mlir::Value upperBound;
     mlir::Value step;
+    mlir::Type inductionVarType;
     bool inclusive;
   };
 

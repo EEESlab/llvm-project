@@ -3343,6 +3343,10 @@ void ConvertCIRToLLVMPass::runOnOperation() {
   target.addIllegalDialect<mlir::BuiltinDialect, cir::CIRDialect,
                            mlir::func::FuncDialect>();
 
+  // Marked legal to allow the lowering of unrealized conversion cast from cir.integer 
+  // to llvm integer. This is needed for the openmp pragma omp for lowering (wsllop/loop_nest structure)
+  target.addLegalOp<mlir::UnrealizedConversionCastOp>();                         
+
   llvm::SmallVector<mlir::Operation *> ops;
   ops.push_back(module);
   collectUnreachable(module, ops);

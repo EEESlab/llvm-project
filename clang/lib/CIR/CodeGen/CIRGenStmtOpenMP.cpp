@@ -12,8 +12,11 @@
 
 #include "CIRGenBuilder.h"
 #include "CIRGenFunction.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
+#include "mlir/IR/BuiltinOps.h"
 #include "clang/AST/StmtOpenMP.h"
+#include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
 using namespace clang;
 using namespace clang::CIRGen;
@@ -65,182 +68,219 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
   return res;
 }
 
-
 //===----------------------------------------------------------------------===//
 // Emit OpenMP `omp.for` directive
 //
 // This function lowers a Clang `OMPForDirective` into an MLIR OpenMP
-// `omp.wsloop` operation. The loop body and iteration space are emitted
-// separately by visiting the associated `ForStmt`.
+// `omp.wsloop` operation, also emitting bounds and step values
+// before the loop_nest operation as required.
+// The loop body and iteration space are emitted separately by visiting 
+// the associated `ForStmt`.
 //===----------------------------------------------------------------------===//
+
+namespace {
+/// Helper to create an LLVM constant of a given integer type
+static mlir::Value createLLVMIntConstant(mlir::OpBuilder &builder, 
+                                         mlir::Location loc,
+                                         mlir::Type type, 
+                                         int64_t value) {
+
+  return mlir::LLVM::ConstantOp::create(
+    builder, loc, type, builder.getIntegerAttr(type, value));
+}
+
+/// Helper to extract integer literal value if present
+static std::optional<int64_t> getIntLiteralValue(const Expr *expr) {
+  if (const auto *intLit = dyn_cast<IntegerLiteral>(expr->IgnoreImpCasts())) {
+    return intLit->getValue().getSExtValue();
+  }
+  return std::nullopt;
+}
+
+/// Convert CIR value to a standard MLIR integer type for use as loop bound
+static mlir::Value convertCIRToLoopBound(mlir::OpBuilder &builder, 
+                                         mlir::Location loc, 
+                                         mlir::Value cirValue, 
+                                         mlir::Type targetType) {
+  // If it's a CIR pointer, load it first
+  if (mlir::isa<cir::PointerType>(cirValue.getType())) {
+    cirValue = cir::LoadOp::create(
+      builder, loc, cirValue).getResult();
+  }
+  
+  // Get the CIR integer type
+  auto cirIntType = mlir::cast<cir::IntType>(cirValue.getType());
+  mlir::Type stdIntType = builder.getIntegerType(cirIntType.getWidth());
+  
+  // CIR → std integer
+  auto stdValue = mlir::UnrealizedConversionCastOp::create(
+      builder, loc, stdIntType, cirValue).getResult(0);
+  
+  // Convert targetType to standard integer if it's a CIR type
+  mlir::Type targetStdType = targetType;
+  if (auto targetCirIntType = mlir::dyn_cast<cir::IntType>(targetType)) {
+    targetStdType = builder.getIntegerType(targetCirIntType.getWidth());
+  }
+  
+  // Verify we have an integer type
+  assert(targetStdType.isInteger() && "Target type must be an integer type");
+  
+  // If already the right type, done
+  if (stdIntType == targetStdType) {
+    return stdValue;
+  }
+  
+  // Otherwise extend/truncate to target type
+  unsigned srcWidth = cirIntType.getWidth();
+  unsigned targetWidth = targetStdType.getIntOrFloatBitWidth();
+  
+  if (srcWidth < targetWidth) {
+    return cirIntType.isSigned() 
+        ? mlir::LLVM::SExtOp::create(builder, loc, targetStdType, stdValue).getResult()
+        : mlir::LLVM::ZExtOp::create(builder, loc, targetStdType, stdValue).getResult();
+  } if (srcWidth > targetWidth) {
+    return mlir::LLVM::TruncOp::create(builder, loc, targetStdType, stdValue).getResult();
+  }  
+  return stdValue;
+}
+} // anonymous namespace
+
 mlir::LogicalResult
 CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
-  //getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPForDirective");
 
-  // Assume success unless an error is encountered while emitting the body.
   mlir::LogicalResult res = mlir::success();
-
-  // Separate begin/end locations for more precise tracking
   mlir::Location begin = getLoc(s.getBeginLoc());
-  // mlir::Location end = getLoc(s.getEndLoc()); -> no need for wsloop operation, since it does not need yield or terminator
 
-  // OpenMP `for` directives wrap the associated loop inside a CapturedStmt.
-  // Extract the underlying canonical `for` loop.
+  // Extract the underlying canonical `for` loop from the CapturedStmt
   const CapturedStmt *capturedStmt = s.getInnermostCapturedStmt();
   const ForStmt *forStmt = dyn_cast<ForStmt>(capturedStmt->getCapturedStmt());
+
+  if (!forStmt) {
+    return mlir::failure();
+  }
 
   // Loop bounds extracted from the Clang AST.
   //
   // IMPORTANT:
-  // These values are materialized *outside* of the `omp.wsloop` region so
-  // that they dominate the loop nest emitted later. This matches the
-  // expectations of the OpenMP dialect, where loop bounds are SSA values
-  // available to the loop_nest.
+  // These values are materialized *outside* of the `omp.wsloop` region.
+  // This matches the expectations of the OpenMP dialect, 
+  // where loop bounds are SSA value available to the loop_nest.
   mlir::Value lowerBound;
   mlir::Value upperBound;
   mlir::Value step;
+  mlir::Type loopBoundsType;  // auto-deduced type for loop bounds and step (e.g., i32, i64) based on the loop variable's type
   bool inclusive = false; // true for <= or >= loop conditions
 
-  if (forStmt) {
-    //===------------------------------------------------------------------===//
-    // 1. Lower bound
-    //===------------------------------------------------------------------===//
-    if (const auto *declStmt = dyn_cast<DeclStmt>(forStmt->getInit())) {
-      if (const auto *varDecl = dyn_cast<VarDecl>(declStmt->getSingleDecl())) {
-        if (varDecl->hasInit()) {
-          // Try constant first
-          if (const auto *intLit = dyn_cast<IntegerLiteral>(varDecl->getInit()->IgnoreImpCasts())) {
-            lowerBound = mlir::arith::ConstantIndexOp::create(builder, begin, intLit->getValue().getSExtValue());
-          } else {   
-            // For non-constant bounds, emit as CIR value
-            mlir::Value rawLB = emitScalarExpr(varDecl->getInit());
-            auto cirIntType = mlir::dyn_cast<cir::IntType>(rawLB.getType());
-            mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
-            
-            auto castOpLB =
-                mlir::UnrealizedConversionCastOp::create(
-                    builder, begin,
-                    mlir::TypeRange{stdIntTy},
-                    mlir::ValueRange{rawLB});
+  //===--------------------------------------------------------------------===//
+  // 1. Extract loop variable type and lower bound
+  //===--------------------------------------------------------------------===//
 
-            lowerBound = mlir::arith::IndexCastOp::create(
-                builder, begin,
-                builder.getIndexType(),
-                castOpLB.getResult(0));
-          }
-        }
+  const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit());
+  const auto *varDecl = declStmt ? dyn_cast<VarDecl>(declStmt->getSingleDecl()) 
+                                 : nullptr;
+  
+  if (!varDecl) {
+    // Non-canonical loop form
+    return mlir::failure();
+  }
+                         
+  // Determine the canonical type for all loop bounds (based on loop variable type)
+  QualType loopVarQType = varDecl->getType();
+  auto cirType = convertType(loopVarQType);
+  auto cirIntType = mlir::cast<cir::IntType>(cirType);
+  loopBoundsType = builder.getIntegerType(cirIntType.getWidth());
+
+  // Extract lower bound
+  if (varDecl->hasInit()) {
+    if (auto constVal = getIntLiteralValue(varDecl->getInit())) {
+      lowerBound = createLLVMIntConstant(builder, begin, loopBoundsType, *constVal);
+    } else {
+      mlir::Value cirValue = emitScalarExpr(varDecl->getInit());
+      lowerBound = convertCIRToLoopBound(builder, begin, cirValue, loopBoundsType);
+    }
+  } else {
+    return mlir::failure();
+  }
+
+  //===--------------------------------------------------------------------===//
+  // 2. Extract upper bound and comparison operator
+  //===--------------------------------------------------------------------===//
+  const auto *condBinOp = dyn_cast_or_null<BinaryOperator>(forStmt->getCond());
+  if (!condBinOp) {
+    return mlir::failure();
+  }
+
+  if (auto constVal = getIntLiteralValue(condBinOp->getRHS())) {
+    upperBound = createLLVMIntConstant(builder, begin, loopBoundsType, *constVal);
+  } else {
+    mlir::Value cirValue = emitScalarExpr(condBinOp->getRHS());
+    upperBound = convertCIRToLoopBound(builder, begin, cirValue, loopBoundsType);
+  }
+
+  BinaryOperatorKind opKind = condBinOp->getOpcode();
+  inclusive = (opKind == BO_LE || opKind == BO_GE);
+
+  //===--------------------------------------------------------------------===//
+  // 3. Extract step
+  //===--------------------------------------------------------------------===//
+  if (const auto *unaryOp = dyn_cast_or_null<UnaryOperator>(forStmt->getInc())) {
+    // Handle i++ or i--
+    int64_t val = unaryOp->isIncrementOp() ? 1 : -1;
+    step = createLLVMIntConstant(builder, begin, loopBoundsType, val);
+  } else if (const auto *binOp = dyn_cast_or_null<BinaryOperator>(forStmt->getInc())) {
+    // Handle i += step or i = i + step
+    const Expr *stepExpr = nullptr;
+    
+    if (binOp->isCompoundAssignmentOp()) {
+      stepExpr = binOp->getRHS();
+    } else if (binOp->isAssignmentOp()) {
+      if (auto *subBinOp = dyn_cast<BinaryOperator>(binOp->getRHS()->IgnoreImpCasts())) {
+        stepExpr = subBinOp->getRHS();
       }
     }
 
-    //===------------------------------------------------------------------===//
-    // 2. Upper bound and comparison kind
-    //===------------------------------------------------------------------===//
-    if (forStmt->getCond()) {
-      if (const auto *binOp = dyn_cast<BinaryOperator>(forStmt->getCond())) {
-        // Try constant first
-        if (const auto *intLit = dyn_cast<IntegerLiteral>(binOp->getRHS()->IgnoreImpCasts())) {
-          int64_t boundVal = intLit->getValue().getSExtValue();
-          upperBound = mlir::arith::ConstantIndexOp::create(builder, begin, boundVal);
-        } else {
-          // For non-constant bounds, emit as CIR value
-          mlir::Value rawBound = emitScalarExpr(binOp->getRHS());
-          auto cirIntType = mlir::dyn_cast<cir::IntType>(rawBound.getType());
-          mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
-          auto castOp = builder.create<mlir::UnrealizedConversionCastOp>(
-              begin, stdIntTy, rawBound);
-          upperBound = mlir::arith::IndexCastOp::create(
-              builder, begin, builder.getIndexType(), castOp.getResult(0));
-        }
-        BinaryOperatorKind opKind = binOp->getOpcode();
-        inclusive = (opKind == BO_LE || opKind == BO_GE);
+    if (stepExpr) {
+      if (auto constVal = getIntLiteralValue(stepExpr)) {
+        step = createLLVMIntConstant(builder, begin, loopBoundsType, *constVal);
+      } else {
+        mlir::Value cirValue = emitScalarExpr(stepExpr);
+        step = convertCIRToLoopBound(builder, begin, cirValue, loopBoundsType);
       }
-    }
-
-    //===------------------------------------------------------------------===//
-    // 3. Step
-    //===------------------------------------------------------------------===//
-    if (forStmt->getInc()) {
-      if (const auto *unaryOp = dyn_cast<UnaryOperator>(forStmt->getInc())) {
-        int64_t val = unaryOp->isIncrementOp() ? 1 : -1;
-        step = mlir::arith::ConstantIndexOp::create(builder, begin, val);
-      } else if (const auto *binOp = dyn_cast<BinaryOperator>(forStmt->getInc())) {
-        Expr *stepExpr = nullptr;
-        if (binOp->isCompoundAssignmentOp()) {
-          stepExpr = binOp->getRHS();
-        } else if (binOp->isAssignmentOp()) {
-          if (auto *subBinOp = dyn_cast<BinaryOperator>(binOp->getRHS()->IgnoreImpCasts())) {
-            stepExpr = subBinOp->getRHS();
-          }
-        }
-
-        if (stepExpr) {
-          // Try constant first
-          if (const auto *intLit = dyn_cast<IntegerLiteral>(stepExpr->IgnoreImpCasts())) {
-            step = mlir::arith::ConstantIndexOp::create(builder, begin, intLit->getValue().getSExtValue());
-          } else {
-            mlir::Value rawStep = emitScalarExpr(stepExpr);
-            auto cirIntType = mlir::dyn_cast<cir::IntType>(rawStep.getType());
-            mlir::Type stdIntTy = builder.getIntegerType(cirIntType.getWidth());
-
-            auto castOpStep =
-                mlir::UnrealizedConversionCastOp::create(
-                    builder, begin,
-                    mlir::TypeRange{stdIntTy},
-                    mlir::ValueRange{rawStep});
-
-            step = mlir::arith::IndexCastOp::create(
-                builder, begin,
-                builder.getIndexType(),
-                castOpStep.getResult(0));
-          }
-        }
-      }
-    }
-
-    // Default to a unit step if no increment expression was recognized.
-    if (!step) {
-      step = mlir::arith::ConstantIndexOp::create(builder, begin, 1);
     }
   }
 
-  // Store the extracted bounds so that `emitForStmt` can construct the
-  // corresponding `omp.loop_nest` inside the wsloop region. Definition added inside CIRGenFunction.h
-  currentOMPLoopBounds = LoopBounds{lowerBound, upperBound, step, inclusive};
+  // Default to unit step if not recognized
+  if (!step) {
+    step = createLLVMIntConstant(builder, begin, loopBoundsType, 1);
+  }
 
-  // Create the OpenMP worksharing loop operation using the simple builder
-  // Similar to how ParallelOp is created in upstream
+  //===--------------------------------------------------------------------===//
+  // 4. Store bounds and create wsloop operation
+  //===--------------------------------------------------------------------===//
+  currentOMPLoopBounds = LoopBounds{lowerBound, upperBound, step, 
+                                     loopBoundsType, inclusive};
+
+  // Create wsloop with empty region
   llvm::SmallVector<mlir::Type> retTy;
   llvm::SmallVector<mlir::Value> operands;
-
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
 
-  // Handle clauses, it does not have a template specialization for WsloopOp (to add?)
-  // emitOpenMPClauses(wsloopOp, s.clauses());
-
-  // TODO: add check for unsupported clauses
-
-  // Populate the wsloop region by emitting the associated `for` statement.
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
   region.push_back(block);
-  
+
+  // Emit the ForStmt body (will create loop_nest when it detects OpenMP context)
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(block);
 
-  // Don't lower the captured statement directly since this will be
-  // special-cased depending on the kind of OpenMP directive.
-  // Extract the actual body from the CapturedStmt and emit it directly.
-  const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_for);
-  const Stmt *bodyStmt = cs->getCapturedStmt();
+  if (emitStmt(forStmt, /*useCurrentScope=*/false).failed()) {
+      res = mlir::failure();
+    }
 
-  if (emitStmt(bodyStmt, /*useCurrentScope=*/false).failed()) {
-    res = mlir::failure();
-  }
+  // Clear loop-bound state
+  currentOMPLoopBounds = std::nullopt;
 
-  // Clear loop-bound state after emitting the loop body.
-  currentOMPLoopBounds = std::nullopt; // Clear
-
-  return mlir::failure();
+  return res;
 }
 
 mlir::LogicalResult

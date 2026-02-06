@@ -980,7 +980,6 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   // OpenMP loop nest operation (used when inside `omp.wsloop`).
   mlir::omp::LoopNestOp loopNestOp;
 
-  // Source location for diagnostics and generated operations. 
   // Has been moved above, needed to generate omp.loop_nest
   auto scopeLoc = getLoc(s.getSourceRange());
 
@@ -1071,32 +1070,24 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
     // OpenMP lowering path: emit `omp.loop_nest`
     //===--------------------------------------------------------------===//
     if(isOMPFor) {
-      //llvm::errs() << "DEBUG: Entering OpenMP loop path (omp.loop_nest)\n";
-
       mlir::OpBuilder::InsertionGuard guard(builder);
 
       // Loop bounds are computed earlier by emitOMPForDirective and
       // communicated via `currentOMPLoopBounds`
-      mlir::Value lowerBound, upperBound, step;
-      bool inclusive;
+      mlir::Type loopBoundsType = currentOMPLoopBounds->inductionVarType;
+      mlir::ValueRange lbRange(currentOMPLoopBounds->lowerBound);
+      mlir::ValueRange ubRange(currentOMPLoopBounds->upperBound);
+      mlir::ValueRange stepRange(currentOMPLoopBounds->step);
+      bool inclusive = currentOMPLoopBounds->inclusive;
 
-      if(currentOMPLoopBounds) {
-        lowerBound = currentOMPLoopBounds->lowerBound;
-        upperBound = currentOMPLoopBounds->upperBound;
-        step = currentOMPLoopBounds->step;
-        inclusive  = currentOMPLoopBounds->inclusive;
-      } else {
-        llvm::errs() << "DEBUG: ERROR in extracting loop bounds\n";
-      }
-      
       // Create the OpenMP loop nest with a single induction variable.
       loopNestOp = loopNestOp.create(
             builder,
             scopeLoc,
             1,
-            lowerBound,
-            upperBound,
-            step,
+            lbRange[0],
+            ubRange[0],
+            stepRange[0],
             inclusive,
             nullptr);   
 
@@ -1106,14 +1097,14 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       mlir::Block *block = new mlir::Block();
       region.push_back(block);
       
-      block->addArgument(builder.getIndexType(), scopeLoc);
+      block->addArgument(loopBoundsType, scopeLoc);
       builder.setInsertionPointToStart(block);
       
       auto savedIP = builder.saveInsertionPoint();
 
       // Emit the loop body.
       if (s.getBody()) {
-        if (emitStmt(s.getBody(), /*useCurrentScope=*/false).failed())
+        if (emitStmt(s.getBody(), /*useCurrentScope=*/true).failed())
          loopRes = mlir::failure();
       }
       builder.restoreInsertionPoint(savedIP);
@@ -1125,7 +1116,6 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
     // Non-OpenMP lowering path: emit `cir.for`
     //===--------------------------------------------------------------===//
     else {
-      //llvm::errs() << "DEBUG: Entering standard CIR loop path (cir.for)\n";
       forOp = builder.createFor(
           getLoc(s.getSourceRange()),
           /*condBuilder=*/
@@ -1167,17 +1157,26 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   };
 
   auto res = mlir::success();
-  cir::ScopeOp::create(builder, scopeLoc, /*scopeBuilder=*/
-                       [&](mlir::OpBuilder &b, mlir::Location loc) {
-                         LexicalScope lexScope{*this, loc,
-                                               builder.getInsertionBlock()};
-                         res = forStmtBuilder();
-                       });
+
+  if (isOMPFor) {
+    res = forStmtBuilder();
+  } else {
+    cir::ScopeOp::create(builder, scopeLoc, /*scopeBuilder=*/
+                  [&](mlir::OpBuilder &b, mlir::Location loc) {
+                    LexicalScope lexScope{*this, loc,
+                                          builder.getInsertionBlock()};
+                    res = forStmtBuilder();
+                  });
+  }
 
   if (res.failed())
     return res;
 
-  terminateBody(builder, forOp.getBody(), getLoc(s.getEndLoc()));
+  // Only regular CIR loops require explicit termination.
+  // OpenMP wsloop/loop_nest regions terminate via omp.yield.
+  if (!isOMPFor) {
+    terminateBody(builder, forOp.getBody(), getLoc(s.getEndLoc()));
+  }
   return mlir::success();
 }
 

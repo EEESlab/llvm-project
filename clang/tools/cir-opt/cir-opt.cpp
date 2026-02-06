@@ -63,6 +63,13 @@ int main(int argc, char **argv) {
     return mlir::createGotoSolverPass();
   });
 
+  // registered reconcile unrealized casts pass, which is needed for the conversion
+  // of wsloop/loop_nest conversion from CIR to LLVM, where unrealized casts 
+  // are generate in the emission from cpp
+  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
+  return mlir::createReconcileUnrealizedCastsPass();
+  });
+
   mlir::registerTransformsPasses();
 
   return mlir::asMainReturnCode(MlirOptMain(
