@@ -145,7 +145,8 @@ mlir::LogicalResult CIRGenFunction::emitStmt(const Stmt *s,
   case Stmt::ContinueStmtClass:
   case Stmt::DeclStmtClass:
   case Stmt::ReturnStmtClass:
-    llvm_unreachable("should have emitted these statements as simple");
+    //llvm_unreachable("should have emitted these statements as simple");
+    return mlir::failure(); //modified to print clean errors when trying to emit pragma omp for with not yet implemented clauses
 
 #define STMT(Type, Base)
 #define ABSTRACT_STMT(Op)

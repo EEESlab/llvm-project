@@ -63,7 +63,17 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
     const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_parallel);
     const Stmt *bodyStmt = cs->getCapturedStmt();
     res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
-    mlir::omp::TerminatorOp::create(builder, end);
+    // Only add terminator if successful 
+    // added to print clean errors when trying to emit pragma omp for with
+    //  not yet implemented clauses
+    if (res.succeeded()) 
+      mlir::omp::TerminatorOp::create(builder, end);
+  }
+
+  // Check result after scope cleanup
+  if (res.failed()) {
+    parallelOp.erase();  // Clean up the partial operation
+    return mlir::failure();
   }
   return res;
 }
@@ -147,6 +157,68 @@ static mlir::Value convertCIRToLoopBound(mlir::OpBuilder &builder,
 
 mlir::LogicalResult
 CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
+  
+  //===--------------------------------------------------------------------===//
+  // NYI: OpenMP clauses for omp for
+  //===--------------------------------------------------------------------===//
+  for (const OMPClause *cl : s.clauses()) {
+
+    if (isa<OMPScheduleClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc()),
+          "OpenMPClause : schedule");
+      return mlir::failure();
+    }
+
+    if (isa<OMPOrderedClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : ordered");
+      return mlir::failure();
+    }
+
+    if (isa<OMPNowaitClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : nowait");
+      return mlir::failure();
+    }
+
+    if (isa<OMPCollapseClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : collapse");
+      return mlir::failure();
+    }
+
+    if (isa<OMPReductionClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : reduction");
+      return mlir::failure();
+    }
+
+    if (isa<OMPPrivateClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : private");
+      return mlir::failure();
+    }
+
+    if (isa<OMPFirstprivateClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : firstprivate");
+      return mlir::failure();
+    }
+
+    if (isa<OMPLastprivateClause>(cl)) {
+      getCIRGenModule().errorNYI(
+          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
+          "OpenMPClause : lastprivate");
+      return mlir::failure();
+    }
+  }
 
   mlir::LogicalResult res = mlir::success();
   mlir::Location begin = getLoc(s.getBeginLoc());
