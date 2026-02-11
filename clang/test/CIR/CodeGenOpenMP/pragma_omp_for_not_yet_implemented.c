@@ -1,10 +1,10 @@
-// RUN: not %clang_cc1 -fopenmp -emit-cir -fclangir %s -o - | FileCheck %s
+// RUN: %clang_cc1 -fopenmp -emit-cir -verify -fclangir %s -o - | FileCheck %s
 
 void test_schedule() {
   int i;
 
 #pragma omp parallel
-  {2
+  {
     // expected-error@+1{{ClangIR code gen Not Yet Implemented: OpenMPClause : schedule}}
 #pragma omp for schedule(static)
     for (i = 0; i < 10; ++i) {

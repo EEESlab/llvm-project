@@ -18,6 +18,8 @@
 #include "clang/AST/StmtOpenMP.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
 #include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "CIRGenOpenMPClause.cpp"
+
 using namespace clang;
 using namespace clang::CIRGen;
 
@@ -157,68 +159,6 @@ static mlir::Value convertCIRToLoopBound(mlir::OpBuilder &builder,
 
 mlir::LogicalResult
 CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
-  
-  //===--------------------------------------------------------------------===//
-  // NYI: OpenMP clauses for omp for
-  //===--------------------------------------------------------------------===//
-  for (const OMPClause *cl : s.clauses()) {
-
-    if (isa<OMPScheduleClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc()),
-          "OpenMPClause : schedule");
-      return mlir::failure();
-    }
-
-    if (isa<OMPOrderedClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : ordered");
-      return mlir::failure();
-    }
-
-    if (isa<OMPNowaitClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : nowait");
-      return mlir::failure();
-    }
-
-    if (isa<OMPCollapseClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : collapse");
-      return mlir::failure();
-    }
-
-    if (isa<OMPReductionClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : reduction");
-      return mlir::failure();
-    }
-
-    if (isa<OMPPrivateClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : private");
-      return mlir::failure();
-    }
-
-    if (isa<OMPFirstprivateClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : firstprivate");
-      return mlir::failure();
-    }
-
-    if (isa<OMPLastprivateClause>(cl)) {
-      getCIRGenModule().errorNYI(
-          SourceRange(cl->getBeginLoc(), cl->getEndLoc()),
-          "OpenMPClause : lastprivate");
-      return mlir::failure();
-    }
-  }
 
   mlir::LogicalResult res = mlir::success();
   mlir::Location begin = getLoc(s.getBeginLoc());
@@ -336,6 +276,11 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   llvm::SmallVector<mlir::Type> retTy;
   llvm::SmallVector<mlir::Value> operands;
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
+
+  OpenMPClauseCIREmitter<mlir::omp::WsloopOp> clauseEmitter(wsloopOp, *this, builder);
+  for (const OMPClause *cl : s.clauses()) {
+    clauseEmitter.Visit(cl);
+  }
 
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
