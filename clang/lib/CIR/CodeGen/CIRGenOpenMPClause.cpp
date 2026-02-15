@@ -92,4 +92,5 @@ void CIRGenFunction::emitOpenMPClauses(Op &op,
   template void CIRGenFunction::emitOpenMPClauses<N>(                          \
       N &, ArrayRef<const OMPClause *>);
 EXPL_SPEC(mlir::omp::ParallelOp)
+EXPL_SPEC(mlir::omp::WsloopOp)
 #undef EXPL_SPEC

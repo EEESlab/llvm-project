@@ -17,6 +17,7 @@
 #include <optional>
 
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
@@ -3343,9 +3344,9 @@ void ConvertCIRToLLVMPass::runOnOperation() {
   target.addIllegalDialect<mlir::BuiltinDialect, cir::CIRDialect,
                            mlir::func::FuncDialect>();
 
-  // Marked legal to allow the lowering of unrealized conversion cast from cir.integer 
-  // to llvm integer. This is needed for the openmp pragma omp for lowering (wsllop/loop_nest structure)
-  target.addLegalOp<mlir::UnrealizedConversionCastOp>();                         
+  // Allow unrealized conversion casts to survive CIR-to-LLVM conversion.
+  // They are resolved by the reconcile-unrealized-casts pass that runs after.
+  target.addLegalOp<mlir::UnrealizedConversionCastOp>();
 
   llvm::SmallVector<mlir::Operation *> ops;
   ops.push_back(module);
@@ -4585,6 +4586,7 @@ std::unique_ptr<mlir::Pass> createConvertCIRToLLVMPass() {
 void populateCIRToLLVMPasses(mlir::OpPassManager &pm) {
   mlir::populateCIRPreLoweringPasses(pm);
   pm.addPass(createConvertCIRToLLVMPass());
+  pm.addPass(mlir::createReconcileUnrealizedCastsPass());
 }
 
 std::unique_ptr<llvm::Module>
