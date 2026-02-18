@@ -76,6 +76,17 @@ private:
 
   std::optional<LoopBounds> currentOMPLoopBounds;
 
+  /// Info about a private variable collected during clause emission and
+  /// consumed when building the wsloop region.
+  struct OMPPrivateVarInfo {
+    const VarDecl *varDecl;
+    mlir::Value originalAddr;
+    mlir::Type elementType;
+    std::string privatizerName;
+  };
+
+  llvm::SmallVector<OMPPrivateVarInfo> currentOMPPrivateVars;
+
   /// A jump destination is an abstract label, branching to which may
   /// require a jump out through normal cleanups.
   struct JumpDest {

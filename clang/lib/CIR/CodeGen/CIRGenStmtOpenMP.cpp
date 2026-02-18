@@ -12,6 +12,7 @@
 
 #include "CIRGenBuilder.h"
 #include "CIRGenFunction.h"
+#include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "clang/AST/StmtOpenMP.h"
@@ -238,25 +239,66 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   currentOMPLoopBounds =
       LoopBounds{stdLB, stdUB, stdStep, loopBoundsType, varDecl, inclusive};
 
-  // Create wsloop with empty region
+  // Create wsloop and process clauses.
   llvm::SmallVector<mlir::Type> retTy;
   llvm::SmallVector<mlir::Value> operands;
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
 
+  // Process clauses (populates currentOMPPrivateVars for private clause).
+  currentOMPPrivateVars.clear();
+  emitOpenMPClauses(wsloopOp, s.clauses());
+
+  // Set private_vars and private_syms on the wsloop.
+  mlir::Type llvmPtrTy = mlir::LLVM::LLVMPointerType::get(builder.getContext());
+  if (!currentOMPPrivateVars.empty()) {
+    llvm::SmallVector<mlir::Value> privateVars;
+    llvm::SmallVector<mlir::Attribute> privateSyms;
+    for (auto &info : currentOMPPrivateVars) {
+      // Cast CIR pointer to !llvm.ptr at the OMP dialect boundary.
+      mlir::Value stdPtr = mlir::UnrealizedConversionCastOp::create(
+          builder, begin, llvmPtrTy, info.originalAddr).getResult(0);
+      privateVars.push_back(stdPtr);
+      privateSyms.push_back(
+          mlir::FlatSymbolRefAttr::get(builder.getContext(),
+                                       info.privatizerName));
+    }
+    wsloopOp.getPrivateVarsMutable().append(privateVars);
+    wsloopOp.setPrivateSymsAttr(
+        mlir::ArrayAttr::get(builder.getContext(), privateSyms));
+  }
+
+  // Create the wsloop region block with block args for private vars.
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
   region.push_back(block);
+  for (size_t i = 0; i < currentOMPPrivateVars.size(); ++i)
+    block->addArgument(llvmPtrTy, begin);
 
-  // Emit the ForStmt body (will create loop_nest when it detects OpenMP
-  // context)
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(block);
 
-  if (emitStmt(forStmt, /*useCurrentScope=*/false).failed()) {
-    res = mlir::failure();
+  // Remap private variables: cast block args back to CIR pointers and
+  // replace the variable mappings so the loop body uses private copies.
+  llvm::SmallVector<std::pair<const VarDecl *, Address>> savedAddrs;
+  for (auto [idx, info] : llvm::enumerate(currentOMPPrivateVars)) {
+    mlir::BlockArgument privArg = block->getArgument(idx);
+    mlir::Value cirPtr = mlir::UnrealizedConversionCastOp::create(
+        builder, begin, info.originalAddr.getType(), privArg).getResult(0);
+    savedAddrs.push_back({info.varDecl, getAddrOfLocalVar(info.varDecl)});
+    replaceAddrOfLocalVar(info.varDecl,
+                          Address(cirPtr, info.elementType,
+                                  CharUnits::One()));
   }
 
-  // Clear loop-bound state
+  // Emit the ForStmt body (will create loop_nest when it detects OpenMP
+  // context).
+  if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
+    res = mlir::failure();
+
+  // Restore original variable mappings.
+  for (auto &[vd, addr] : savedAddrs)
+    replaceAddrOfLocalVar(vd, addr);
+  currentOMPPrivateVars.clear();
   currentOMPLoopBounds = std::nullopt;
 
   return res;
