@@ -2,7 +2,8 @@
 
 void use(int);
 
-// Test private clause on omp for
+// Test private clause on omp for: the omp.private op is emitted at module
+// level, and wsloop references it via private_vars/private_syms.
 void emit_for_private() {
   // CHECK: cir.func{{.*}}@{{.*}}emit_for_private
   int x = 42;
@@ -14,12 +15,12 @@ void emit_for_private() {
     }
   }
 
-  // module-level privatizer
+  // module-level privatizer (emitted before the function)
   // CHECK: omp.private {type = private} @x.privatizer : i32
 
   // CHECK: omp.parallel {
 
-  // x alloca (outer)
+  // x alloca (outer, referenced by private_vars operand)
   // CHECK: %[[X_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["x", init]
 
   // loop bounds
@@ -35,17 +36,17 @@ void emit_for_private() {
   // CHECK: %[[C10:.*]] = builtin.unrealized_conversion_cast %[[C10_CIR]] : !s32i to i32
   // CHECK: %[[C1:.*]] = builtin.unrealized_conversion_cast %[[C1_CIR]] : !s32i to i32
 
-  // cast x alloca to !llvm.ptr for private_vars operand
+  // cast x alloca to !llvm.ptr for the private_vars operand
   // CHECK: %[[X_LLVMPTR:.*]] = builtin.unrealized_conversion_cast %[[X_ALLOCA]] : !cir.ptr<!s32i> to !llvm.ptr
 
-  // wsloop with private clause
+  // wsloop with private clause; the wsloop block has one block arg (%[[PRIV_ARG]])
   // CHECK: omp.wsloop private(@x.privatizer %[[X_LLVMPTR]] -> %[[PRIV_ARG:.*]] : !llvm.ptr) {
 
-  // cast block arg back to CIR pointer
-  // CHECK: %[[PRIV_CIR:.*]] = builtin.unrealized_conversion_cast %[[PRIV_ARG]] : !llvm.ptr to !cir.ptr<!s32i>
+  // loop_nest is the single op inside the wsloop block
+  // CHECK-NEXT: omp.loop_nest (%[[IV:.*]]) : i32 = (%[[C0]]) to (%[[C10]]) step (%[[C1]]) {
 
-  // loop nest
-  // CHECK: omp.loop_nest (%[[IV:.*]]) : i32 = (%[[C0]]) to (%[[C10]]) step (%[[C1]]) {
+  // Inside the loop_nest body: cast block arg back to CIR pointer for remapping
+  // CHECK: %[[PRIV_CIR:.*]] = builtin.unrealized_conversion_cast %[[PRIV_ARG]] : !llvm.ptr to !cir.ptr<!s32i>
 
   // store induction variable
   // CHECK: %[[IV_CIR:.*]] = builtin.unrealized_conversion_cast %[[IV]] : i32 to !s32i
@@ -84,18 +85,19 @@ void emit_for_private_multi() {
   // CHECK: %[[A_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["a", init]
   // CHECK: %[[B_ALLOCA:.*]] = cir.alloca !s32i, !cir.ptr<!s32i>, ["b", init]
 
-  // cast to !llvm.ptr
+  // cast to !llvm.ptr for private_vars operands
   // CHECK: %[[A_LLVMPTR:.*]] = builtin.unrealized_conversion_cast %[[A_ALLOCA]] : !cir.ptr<!s32i> to !llvm.ptr
   // CHECK: %[[B_LLVMPTR:.*]] = builtin.unrealized_conversion_cast %[[B_ALLOCA]] : !cir.ptr<!s32i> to !llvm.ptr
 
-  // wsloop with two private vars
+  // wsloop with two private vars; block has two block args
   // CHECK: omp.wsloop private(@a.privatizer %[[A_LLVMPTR]] -> %[[PRIV_A:.*]], @b.privatizer %[[B_LLVMPTR]] -> %[[PRIV_B:.*]] : !llvm.ptr, !llvm.ptr) {
 
-  // cast block args back to CIR pointers
+  // loop_nest is the single op in the wsloop block
+  // CHECK-NEXT: omp.loop_nest
+
+  // casts from block args back to CIR pointers, inside loop_nest body
   // CHECK: %[[A_CIR:.*]] = builtin.unrealized_conversion_cast %[[PRIV_A]] : !llvm.ptr to !cir.ptr<!s32i>
   // CHECK: %[[B_CIR:.*]] = builtin.unrealized_conversion_cast %[[PRIV_B]] : !llvm.ptr to !cir.ptr<!s32i>
-
-  // CHECK: omp.loop_nest
 
   // use(a) and use(b) load from private copies
   // CHECK: cir.load %[[A_CIR]] : !cir.ptr<!s32i>, !s32i

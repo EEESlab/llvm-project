@@ -1001,6 +1001,22 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       block->addArgument(loopBoundsType, scopeLoc);
       builder.setInsertionPointToStart(block);
 
+      // Remap private variables: cast wsloop block args (!llvm.ptr) to CIR
+      // pointers. These casts are placed here (loop_nest body) rather than in
+      // the wsloop body, which must contain exactly one nested op (loop_nest).
+      llvm::SmallVector<std::pair<const VarDecl *, Address>> savedPrivateAddrs;
+      for (auto &info : currentOMPPrivateVars) {
+        mlir::Value cirPtr =
+            mlir::UnrealizedConversionCastOp::create(
+                builder, scopeLoc, info.originalAddr.getType(), info.blockArg)
+                .getResult(0);
+        savedPrivateAddrs.push_back(
+            {info.varDecl, getAddrOfLocalVar(info.varDecl)});
+        replaceAddrOfLocalVar(
+            info.varDecl,
+            Address(cirPtr, info.elementType, CharUnits::One()));
+      }
+
       // Store the IV block argument into the loop variable alloca, converting
       // back from standard integer to CIR integer type.
       mlir::Value iv = block->getArgument(0);
@@ -1019,6 +1035,10 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
         if (emitStmt(s.getBody(), /*useCurrentScope=*/true).failed())
           loopRes = mlir::failure();
       }
+
+      // Restore original variable mappings after emitting the body.
+      for (auto &[vd, addr] : savedPrivateAddrs)
+        replaceAddrOfLocalVar(vd, addr);
 
       mlir::omp::YieldOp::create(builder, getLoc(s.getEndLoc()));
     } else {

@@ -69,7 +69,8 @@ public:
   }
 
   void VisitOMPPrivateClause(const OMPPrivateClause *clause) {
-    if constexpr (std::is_same_v<OpTy, mlir::omp::WsloopOp>) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::WsloopOp> ||
+                  std::is_same_v<OpTy, mlir::omp::ParallelOp>) {
       for (const Expr *varExpr : clause->varlist()) {
         const auto *dre =
             cast<DeclRefExpr>(varExpr->IgnoreParenImpCasts());

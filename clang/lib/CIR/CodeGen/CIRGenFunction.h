@@ -83,6 +83,11 @@ private:
     mlir::Value originalAddr;
     mlir::Type elementType;
     std::string privatizerName;
+    /// Block argument of the wsloop region block representing the private copy.
+    /// Set in emitOMPForDirective; consumed in emitForStmt to insert remapping
+    /// casts inside the loop_nest body (wsloop body must contain exactly one
+    /// nested op, so casts cannot be placed there).
+    mlir::Value blockArg;
   };
 
   /// A jump destination is an abstract label, branching to which may
