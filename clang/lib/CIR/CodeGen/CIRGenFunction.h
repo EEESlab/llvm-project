@@ -85,8 +85,6 @@ private:
     std::string privatizerName;
   };
 
-  llvm::SmallVector<OMPPrivateVarInfo> currentOMPPrivateVars;
-
   /// A jump destination is an abstract label, branching to which may
   /// require a jump out through normal cleanups.
   struct JumpDest {
@@ -127,6 +125,9 @@ public:
 
   /// The compiler-generated variable that holds the return value.
   std::optional<mlir::Value> fnRetAlloca;
+
+  // Tracks privatized variables for the current OpenMP region being emitted.
+  llvm::SmallVector<OMPPrivateVarInfo> currentOMPPrivateVars;
 
   // Holds coroutine data if the current function is a coroutine. We use a
   // wrapper to manage its lifetime, so that we don't have to define CGCoroData

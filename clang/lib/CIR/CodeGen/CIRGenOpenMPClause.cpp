@@ -97,9 +97,9 @@ public:
           mlir::OpBuilder::InsertionGuard guard(builder);
           builder.setInsertionPointToStart(moduleOp.getBody());
           mlir::omp::PrivateClauseOp::create(
-              builder, operation.getLoc(), privatizerName,
-              mlir::TypeAttr::get(stdType),
-              mlir::omp::DataSharingClauseType::Private);
+            builder, operation.getLoc(), llvm::StringRef(privatizerName),
+            stdType,                                         // mlir::Type, not TypeAttr
+            mlir::omp::DataSharingClauseType::Private);
         }
 
         cgf.currentOMPPrivateVars.push_back(
