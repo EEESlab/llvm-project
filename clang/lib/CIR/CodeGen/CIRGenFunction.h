@@ -51,6 +51,7 @@ class LoopOp;
 namespace clang::CIRGen {
 
 struct CGCoroData;
+class OMPDataSharingProcessor;
 
 class CIRGenFunction : public CIRGenTypeCache {
 public:
@@ -75,8 +76,6 @@ private:
   };
 
   std::optional<LoopBounds> currentOMPLoopBounds;
-
-  class OMPDataSharingProcessor;
 
   /// A jump destination is an abstract label, branching to which may
   /// require a jump out through normal cleanups.
