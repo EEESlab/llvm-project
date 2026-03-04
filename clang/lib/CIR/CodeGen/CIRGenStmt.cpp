@@ -24,6 +24,7 @@
 
 // Required to construct OpenMP operations such as `omp.wsloop` and
 // `omp.loop_nest` during lowering.
+#include "CIRGenOpenMPRuntime.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 
 using namespace clang;
@@ -1004,18 +1005,11 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       // Remap private variables: cast wsloop block args (!llvm.ptr) to CIR
       // pointers. These casts are placed here (loop_nest body) rather than in
       // the wsloop body, which must contain exactly one nested op (loop_nest).
-      llvm::SmallVector<std::pair<const VarDecl *, Address>> savedPrivateAddrs;
-      for (auto &info : currentOMPPrivateVars) {
-        mlir::Value cirPtr =
-            mlir::UnrealizedConversionCastOp::create(
-                builder, scopeLoc, info.originalAddr.getType(), info.blockArg)
-                .getResult(0);
-        savedPrivateAddrs.push_back(
-            {info.varDecl, getAddrOfLocalVar(info.varDecl)});
-        replaceAddrOfLocalVar(
-            info.varDecl,
-            Address(cirPtr, info.elementType, CharUnits::One()));
-      }
+      // The RAII guard restores original mappings when it goes out of scope.
+      std::optional<OMPDataSharingProcessor::RemapGuard> remapGuard;
+      if (currentOMPDataSharingProcessor &&
+          currentOMPDataSharingProcessor->hasPrivateVars())
+        remapGuard.emplace(currentOMPDataSharingProcessor->applyRemapping());
 
       // Store the IV block argument into the loop variable alloca, converting
       // back from standard integer to CIR integer type.
@@ -1036,9 +1030,7 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
           loopRes = mlir::failure();
       }
 
-      // Restore original variable mappings after emitting the body.
-      for (auto &[vd, addr] : savedPrivateAddrs)
-        replaceAddrOfLocalVar(vd, addr);
+      // remapGuard restores original variable mappings on scope exit.
 
       mlir::omp::YieldOp::create(builder, getLoc(s.getEndLoc()));
     } else {

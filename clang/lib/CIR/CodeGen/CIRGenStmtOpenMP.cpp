@@ -12,6 +12,7 @@
 
 #include "CIRGenBuilder.h"
 #include "CIRGenFunction.h"
+#include "CIRGenOpenMPRuntime.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -43,57 +44,29 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
   auto parallelOp =
       mlir::omp::ParallelOp::create(builder, begin, retTy, operands);
 
-  // Process clauses (populates currentOMPPrivateVars for private clause).
-  currentOMPPrivateVars.clear();
+  // Process non-private clauses (e.g. proc_bind).
   emitOpenMPClauses(parallelOp, s.clauses());
 
-  // Set private_vars and private_syms. Casts go BEFORE parallelOp to maintain
-  // SSA dominance (operand values must be defined before the op that uses them).
-  mlir::Type llvmPtrTy = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-  if (!currentOMPPrivateVars.empty()) {
-    llvm::SmallVector<mlir::Value> privateVars;
-    llvm::SmallVector<mlir::Attribute> privateSyms;
-    {
-      mlir::OpBuilder::InsertionGuard castGuard(builder);
-      builder.setInsertionPoint(parallelOp);
-      for (auto &info : currentOMPPrivateVars) {
-        mlir::Value stdPtr = mlir::UnrealizedConversionCastOp::create(
-            builder, begin, llvmPtrTy, info.originalAddr).getResult(0);
-        privateVars.push_back(stdPtr);
-        privateSyms.push_back(
-            mlir::FlatSymbolRefAttr::get(builder.getContext(),
-                                         info.privatizerName));
-      }
-    }
-    parallelOp.getPrivateVarsMutable().append(privateVars);
+  // Data sharing: collect private vars, create omp.private ops, build operands.
+  OMPPrivateClauseOps clauseOps;
+  OMPDataSharingProcessor dsp(*this, builder, begin);
+  dsp.processStep1(s.clauses(), clauseOps, parallelOp);
+
+  if (dsp.hasPrivateVars()) {
+    parallelOp.getPrivateVarsMutable().append(clauseOps.privateVars);
     parallelOp.setPrivateSymsAttr(
-        mlir::ArrayAttr::get(builder.getContext(), privateSyms));
+        mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
   {
     mlir::Block &block = parallelOp.getRegion().emplaceBlock();
-
-    // Add !llvm.ptr block args for each private var and store them for remapping.
-    for (auto &info : currentOMPPrivateVars) {
-      mlir::BlockArgument arg = block.addArgument(llvmPtrTy, begin);
-      info.blockArg = arg;
-    }
+    dsp.addBlockArgs(block);
 
     mlir::OpBuilder::InsertionGuard guardCase(builder);
     builder.setInsertionPointToEnd(&block);
 
-    // Remap private variables: cast block args (!llvm.ptr) to CIR pointers.
-    llvm::SmallVector<std::pair<const VarDecl *, Address>> savedAddrs;
-    for (auto &info : currentOMPPrivateVars) {
-      mlir::Value cirPtr =
-          mlir::UnrealizedConversionCastOp::create(
-              builder, begin, info.originalAddr.getType(), info.blockArg)
-              .getResult(0);
-      savedAddrs.push_back({info.varDecl, getAddrOfLocalVar(info.varDecl)});
-      replaceAddrOfLocalVar(
-          info.varDecl,
-          Address(cirPtr, info.elementType, CharUnits::One()));
-    }
+    // RAII remapping: casts block args to CIR pointers and remaps localDeclMap.
+    auto remapGuard = dsp.applyRemapping();
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
@@ -103,22 +76,14 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
     if (s.getTaskReductionRefExpr())
       getCIRGenModule().errorNYI(s.getBeginLoc(),
                                  "OpenMP Parallel with Task Reduction");
-    // Don't lower the captured statement directly since this will be
-    // special-cased depending on the kind of OpenMP directive that is the
-    // parent, also the non-OpenMP context captured statements lowering does
-    // not apply directly.
     const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_parallel);
     const Stmt *bodyStmt = cs->getCapturedStmt();
     res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
 
-    // Restore original variable mappings.
-    for (auto &[vd, addr] : savedAddrs)
-      replaceAddrOfLocalVar(vd, addr);
-
+    // remapGuard restores original variable mappings on scope exit.
     mlir::omp::TerminatorOp::create(builder, end);
   }
 
-  currentOMPPrivateVars.clear();
   return res;
 }
 
@@ -297,31 +262,18 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   llvm::SmallVector<mlir::Value> operands;
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
 
-  // Process clauses (populates currentOMPPrivateVars for private clause).
-  currentOMPPrivateVars.clear();
+  // Process non-private clauses.
   emitOpenMPClauses(wsloopOp, s.clauses());
 
-  // Set private_vars and private_syms on the wsloop.
-  // Casts must be inserted BEFORE wsloopOp to maintain SSA dominance.
-  mlir::Type llvmPtrTy = mlir::LLVM::LLVMPointerType::get(builder.getContext());
-  if (!currentOMPPrivateVars.empty()) {
-    llvm::SmallVector<mlir::Value> privateVars;
-    llvm::SmallVector<mlir::Attribute> privateSyms;
-    {
-      mlir::OpBuilder::InsertionGuard castGuard(builder);
-      builder.setInsertionPoint(wsloopOp);
-      for (auto &info : currentOMPPrivateVars) {
-        mlir::Value stdPtr = mlir::UnrealizedConversionCastOp::create(
-            builder, begin, llvmPtrTy, info.originalAddr).getResult(0);
-        privateVars.push_back(stdPtr);
-        privateSyms.push_back(
-            mlir::FlatSymbolRefAttr::get(builder.getContext(),
-                                         info.privatizerName));
-      }
-    }
-    wsloopOp.getPrivateVarsMutable().append(privateVars);
+  // Data sharing: collect private vars, create omp.private ops, build operands.
+  OMPPrivateClauseOps clauseOps;
+  OMPDataSharingProcessor dsp(*this, builder, begin);
+  dsp.processStep1(s.clauses(), clauseOps, wsloopOp);
+
+  if (dsp.hasPrivateVars()) {
+    wsloopOp.getPrivateVarsMutable().append(clauseOps.privateVars);
     wsloopOp.setPrivateSymsAttr(
-        mlir::ArrayAttr::get(builder.getContext(), privateSyms));
+        mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
   // Create the wsloop region block. Block args for private vars are added here;
@@ -330,20 +282,22 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
   region.push_back(block);
-  for (auto &info : currentOMPPrivateVars) {
-    mlir::BlockArgument arg = block->addArgument(llvmPtrTy, begin);
-    info.blockArg = arg;
-  }
+  dsp.addBlockArgs(*block);
 
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(block);
+
+  // Store the processor for deferred remapping in emitForStmt.
+  assert(!currentOMPDataSharingProcessor &&
+         "nested wsloop privatization not supported");
+  currentOMPDataSharingProcessor = &dsp;
 
   // Emit the ForStmt body (will create loop_nest as the single nested op).
   // Variable remapping for private vars happens inside the loop_nest body.
   if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
     res = mlir::failure();
 
-  currentOMPPrivateVars.clear();
+  currentOMPDataSharingProcessor = nullptr;
   currentOMPLoopBounds = std::nullopt;
 
   return res;

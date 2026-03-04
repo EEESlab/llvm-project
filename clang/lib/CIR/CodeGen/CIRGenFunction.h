@@ -76,19 +76,7 @@ private:
 
   std::optional<LoopBounds> currentOMPLoopBounds;
 
-  /// Info about a private variable collected during clause emission and
-  /// consumed when building the wsloop region.
-  struct OMPPrivateVarInfo {
-    const VarDecl *varDecl;
-    mlir::Value originalAddr;
-    mlir::Type elementType;
-    std::string privatizerName;
-    /// Block argument of the wsloop region block representing the private copy.
-    /// Set in emitOMPForDirective; consumed in emitForStmt to insert remapping
-    /// casts inside the loop_nest body (wsloop body must contain exactly one
-    /// nested op, so casts cannot be placed there).
-    mlir::Value blockArg;
-  };
+  class OMPDataSharingProcessor;
 
   /// A jump destination is an abstract label, branching to which may
   /// require a jump out through normal cleanups.
@@ -131,8 +119,8 @@ public:
   /// The compiler-generated variable that holds the return value.
   std::optional<mlir::Value> fnRetAlloca;
 
-  // Tracks privatized variables for the current OpenMP region being emitted.
-  llvm::SmallVector<OMPPrivateVarInfo> currentOMPPrivateVars;
+  // Active data sharing processor for wsloop deferred remapping in emitForStmt.
+  OMPDataSharingProcessor *currentOMPDataSharingProcessor = nullptr;
 
   // Holds coroutine data if the current function is a coroutine. We use a
   // wrapper to manage its lifetime, so that we don't have to define CGCoroData
