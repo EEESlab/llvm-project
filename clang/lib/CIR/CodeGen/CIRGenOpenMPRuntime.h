@@ -15,6 +15,7 @@
 
 #include "CIRGenBuilder.h"
 #include "CIRGenValue.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/SmallVector.h"
@@ -106,7 +107,8 @@ private:
   mlir::Type convertCIRTypeToStdType(mlir::Type cirType);
 
   /// Create or reuse an omp.private op at module level.
-  void getOrCreatePrivateOp(llvm::StringRef name, mlir::Type stdType);
+  void getOrCreatePrivateOp(llvm::StringRef name, mlir::Type stdType,
+                            mlir::omp::DataSharingClauseType dsType);
 };
 
 } // namespace clang::CIRGen

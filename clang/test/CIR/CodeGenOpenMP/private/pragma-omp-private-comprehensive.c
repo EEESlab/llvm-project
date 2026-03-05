@@ -12,7 +12,10 @@ void use_uint(unsigned);
 // --- Test 1: write to private var inside parallel ---
 // Verify that a store inside the parallel region targets the private copy.
 
-// CHECK-LABEL: omp.private {type = private} @x.privatizer : i32
+// CHECK-LABEL: omp.private {type = private} @x.privatizer : i32 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[X_INIT:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[X_INIT]] : !llvm.ptr)
+// CHECK:       }
 void test_write_private_parallel() {
   int x = 0;
   // CHECK: cir.func{{.*}}@{{.*}}test_write_private_parallel
@@ -65,7 +68,9 @@ void test_post_region_value() {
 
 // --- Test 3: short (16-bit integer) ---
 
-// CHECK: omp.private {type = private} @s.privatizer : i16
+// CHECK: omp.private {type = private} @s.privatizer : i16 init {
+// CHECK:   omp.yield(%{{.*}} : !llvm.ptr)
+// CHECK: }
 void test_private_short() {
   short s = 1;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_short
@@ -86,7 +91,9 @@ void test_private_short() {
 
 // --- Test 4: long long (64-bit integer) ---
 
-// CHECK: omp.private {type = private} @ll.privatizer : i64
+// CHECK: omp.private {type = private} @ll.privatizer : i64 init {
+// CHECK:   omp.yield(%{{.*}} : !llvm.ptr)
+// CHECK: }
 void test_private_longlong() {
   long long ll = 100;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_longlong
@@ -107,7 +114,9 @@ void test_private_longlong() {
 
 // --- Test 5: unsigned int ---
 
-// CHECK: omp.private {type = private} @u.privatizer : i32
+// CHECK: omp.private {type = private} @u.privatizer : i32 init {
+// CHECK:   omp.yield(%{{.*}} : !llvm.ptr)
+// CHECK: }
 void test_private_unsigned() {
   unsigned u = 5;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_unsigned
@@ -129,7 +138,9 @@ void test_private_unsigned() {
 // --- Test 6: nested parallel private + for private ---
 // private(x) on the parallel, private(y) on the inner for.
 
-// CHECK: omp.private {type = private} @y.privatizer : i32
+// CHECK: omp.private {type = private} @y.privatizer : i32 init {
+// CHECK:   omp.yield(%{{.*}} : !llvm.ptr)
+// CHECK: }
 void test_nested_private() {
   int x = 1, y = 2;
   // CHECK: cir.func{{.*}}@{{.*}}test_nested_private

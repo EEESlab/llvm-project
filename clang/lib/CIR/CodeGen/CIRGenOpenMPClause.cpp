@@ -68,9 +68,10 @@ public:
     }
   }
 
-  // Private clause is handled by OMPDataSharingProcessor in the directive
-  // emitters. This visitor intentionally does nothing for it.
+  // Private and firstprivate clauses are handled by OMPDataSharingProcessor
+  // in the directive emitters. These visitors intentionally do nothing.
   void VisitOMPPrivateClause(const OMPPrivateClause *) {}
+  void VisitOMPFirstprivateClause(const OMPFirstprivateClause *) {}
 
   void emitClauses(ArrayRef<const OMPClause *> clauses) {
     for (const auto *c : clauses)

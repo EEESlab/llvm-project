@@ -87,43 +87,89 @@ OMPDataSharingProcessor::convertCIRTypeToStdType(mlir::Type cirType) {
   return {};
 }
 
-void OMPDataSharingProcessor::getOrCreatePrivateOp(llvm::StringRef name,
-                                                   mlir::Type stdType) {
+void OMPDataSharingProcessor::getOrCreatePrivateOp(
+    llvm::StringRef name, mlir::Type stdType,
+    mlir::omp::DataSharingClauseType dsType) {
   auto moduleOp = cgf.getCIRGenModule().getModule();
   if (moduleOp.lookupSymbol<mlir::omp::PrivateClauseOp>(name))
     return;
 
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(moduleOp.getBody());
-  mlir::omp::PrivateClauseOp::create(builder, loc, name, stdType,
-                                     mlir::omp::DataSharingClauseType::Private);
+  auto privateOp =
+      mlir::omp::PrivateClauseOp::create(builder, loc, name, stdType, dsType);
+
+  mlir::Type llvmPtrTy =
+      mlir::LLVM::LLVMPointerType::get(builder.getContext());
+
+  // Populate the init region. For scalar types, the private variable needs
+  // no special initialization — just yield the allocated variable.
+  // This mirrors Flang's initTrivialType() in PrivateReductionUtils.cpp.
+  //
+  // The init region has two block arguments of !llvm.ptr type:
+  //   %arg0 = mold (the original host variable, read-only)
+  //   %arg1 = allocated private variable
+  {
+    mlir::Region &initRegion = privateOp.getInitRegion();
+    mlir::Block *initBlock = builder.createBlock(
+        &initRegion, /*insertPt=*/{}, {llvmPtrTy, llvmPtrTy}, {loc, loc});
+    builder.setInsertionPointToEnd(initBlock);
+    mlir::omp::YieldOp::create(builder, loc,
+                                mlir::ValueRange{initBlock->getArgument(1)});
+  }
+
+  // Populate the copy region for firstprivate. The copy region loads the
+  // original value from %arg0 and stores it into the private copy %arg1,
+  // then yields %arg1. This mirrors Flang's copyFirstPrivateSymbol().
+  //
+  // The copy region has two block arguments of !llvm.ptr type:
+  //   %arg0 = original host variable (source)
+  //   %arg1 = allocated private variable (destination)
+  if (dsType == mlir::omp::DataSharingClauseType::FirstPrivate) {
+    mlir::Region &copyRegion = privateOp.getCopyRegion();
+    mlir::Block *copyBlock = builder.createBlock(
+        &copyRegion, /*insertPt=*/{}, {llvmPtrTy, llvmPtrTy}, {loc, loc});
+    builder.setInsertionPointToEnd(copyBlock);
+    mlir::Value origPtr = copyBlock->getArgument(0);
+    mlir::Value privPtr = copyBlock->getArgument(1);
+    mlir::Value val =
+        mlir::LLVM::LoadOp::create(builder, loc, stdType, origPtr);
+    mlir::LLVM::StoreOp::create(builder, loc, val, privPtr);
+    mlir::omp::YieldOp::create(builder, loc, mlir::ValueRange{privPtr});
+  }
 }
 
 void OMPDataSharingProcessor::processStep1(
     llvm::ArrayRef<const OMPClause *> clauses,
     OMPPrivateClauseOps &clauseOps, mlir::Operation *insertBeforeOp) {
-  // Collect private variables from all OMPPrivateClause nodes.
+  // Helper: process a single variable from a private/firstprivate clause.
+  auto processVar = [&](const Expr *varExpr,
+                        mlir::omp::DataSharingClauseType dsType) {
+    const auto *dre = cast<DeclRefExpr>(varExpr->IgnoreParenImpCasts());
+    const auto *vd = cast<VarDecl>(dre->getDecl());
+
+    Address addr = cgf.getAddrOfLocalVar(vd);
+    mlir::Value originalAddr = addr.getPointer();
+    mlir::Type elementType = addr.getElementType();
+
+    mlir::Type stdType = convertCIRTypeToStdType(elementType);
+    if (!stdType)
+      return; // errorNYI already emitted
+
+    std::string privatizerName = vd->getNameAsString() + ".privatizer";
+    getOrCreatePrivateOp(privatizerName, stdType, dsType);
+
+    entries.push_back({vd, originalAddr, elementType, privatizerName, {}});
+  };
+
+  // Collect variables from private and firstprivate clauses.
   for (const OMPClause *c : clauses) {
-    const auto *privClause = dyn_cast<OMPPrivateClause>(c);
-    if (!privClause)
-      continue;
-    for (const Expr *varExpr : privClause->varlist()) {
-      const auto *dre =
-          cast<DeclRefExpr>(varExpr->IgnoreParenImpCasts());
-      const auto *vd = cast<VarDecl>(dre->getDecl());
-
-      Address addr = cgf.getAddrOfLocalVar(vd);
-      mlir::Value originalAddr = addr.getPointer();
-      mlir::Type elementType = addr.getElementType();
-
-      mlir::Type stdType = convertCIRTypeToStdType(elementType);
-      if (!stdType)
-        continue; // errorNYI already emitted
-
-      std::string privatizerName = vd->getNameAsString() + ".privatizer";
-      getOrCreatePrivateOp(privatizerName, stdType);
-
-      entries.push_back({vd, originalAddr, elementType, privatizerName, {}});
+    if (const auto *privClause = dyn_cast<OMPPrivateClause>(c)) {
+      for (const Expr *varExpr : privClause->varlist())
+        processVar(varExpr, mlir::omp::DataSharingClauseType::Private);
+    } else if (const auto *fpClause = dyn_cast<OMPFirstprivateClause>(c)) {
+      for (const Expr *varExpr : fpClause->varlist())
+        processVar(varExpr, mlir::omp::DataSharingClauseType::FirstPrivate);
     }
   }
 

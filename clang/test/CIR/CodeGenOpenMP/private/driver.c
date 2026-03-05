@@ -136,6 +136,61 @@ void test_private_unsigned() {
 }
 
 // ============================================================
+// Firstprivate — basic int (copy from original)
+// ============================================================
+void test_firstprivate_int() {
+  int x = 42;
+#pragma omp parallel firstprivate(x)
+  {
+    printf("firstprivate int: x = %d (should be 42)\n", x);
+    x = 0;
+    printf("firstprivate int after modify: x = %d (should be 0)\n", x);
+  }
+  printf("after firstprivate: x = %d (should be 42)\n", x);
+}
+
+// ============================================================
+// Firstprivate — float
+// ============================================================
+void test_firstprivate_float() {
+  float f = 3.14f;
+#pragma omp parallel firstprivate(f)
+  {
+    printf("firstprivate float: f = %f (should be ~3.14)\n", f);
+    f = 0.0f;
+  }
+  printf("after firstprivate: f = %f (should be ~3.14)\n", f);
+}
+
+// ============================================================
+// Mixed private + firstprivate
+// ============================================================
+void test_mixed_private_firstprivate() {
+  int a = 10, b = 20;
+#pragma omp parallel private(a) firstprivate(b)
+  {
+    // a is uninitialized (private), b should be 20 (firstprivate)
+    printf("mixed: a=%d (uninitialized), b=%d (should be 20)\n", a, b);
+  }
+  printf("after mixed: a=%d b=%d (should be 10, 20)\n", a, b);
+}
+
+// ============================================================
+// Firstprivate on for loop
+// ============================================================
+void test_firstprivate_for() {
+  int val = 100;
+#pragma omp parallel
+  {
+#pragma omp for firstprivate(val)
+    for (int i = 0; i < 4; i++) {
+      printf("for firstprivate: i=%d val=%d (should be 100)\n", i, val);
+    }
+  }
+  printf("after for firstprivate: val = %d (should be 100)\n", val);
+}
+
+// ============================================================
 // Main
 // ============================================================
 int main() {
@@ -168,6 +223,18 @@ int main() {
 
   printf("\n=== private unsigned ===\n");
   test_private_unsigned();
+
+  printf("\n=== firstprivate int ===\n");
+  test_firstprivate_int();
+
+  printf("\n=== firstprivate float ===\n");
+  test_firstprivate_float();
+
+  printf("\n=== mixed private + firstprivate ===\n");
+  test_mixed_private_firstprivate();
+
+  printf("\n=== firstprivate for ===\n");
+  test_firstprivate_for();
 
   printf("\nAll tests completed.\n");
   return 0;

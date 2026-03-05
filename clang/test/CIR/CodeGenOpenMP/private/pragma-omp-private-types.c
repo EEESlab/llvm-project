@@ -10,7 +10,10 @@ void use_bool(_Bool);
 
 // --- float ---
 
-// CHECK-LABEL: omp.private {type = private} @f.privatizer : f32
+// CHECK-LABEL: omp.private {type = private} @f.privatizer : f32 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[F_INIT:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[F_INIT]] : !llvm.ptr)
+// CHECK:       }
 void test_private_float() {
   float f = 1.0f;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_float
@@ -31,7 +34,10 @@ void test_private_float() {
 
 // --- double ---
 
-// CHECK-LABEL: omp.private {type = private} @d.privatizer : f64
+// CHECK-LABEL: omp.private {type = private} @d.privatizer : f64 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[D_INIT:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[D_INIT]] : !llvm.ptr)
+// CHECK:       }
 void test_private_double() {
   double d = 2.0;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_double
@@ -52,7 +58,10 @@ void test_private_double() {
 
 // --- pointer ---
 
-// CHECK-LABEL: omp.private {type = private} @p.privatizer : !llvm.ptr
+// CHECK-LABEL: omp.private {type = private} @p.privatizer : !llvm.ptr init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[P_INIT:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[P_INIT]] : !llvm.ptr)
+// CHECK:       }
 void test_private_pointer() {
   int *p = 0;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_pointer
@@ -73,7 +82,10 @@ void test_private_pointer() {
 
 // --- _Bool ---
 
-// CHECK-LABEL: omp.private {type = private} @b.privatizer : i1
+// CHECK-LABEL: omp.private {type = private} @b.privatizer : i1 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[B_INIT:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[B_INIT]] : !llvm.ptr)
+// CHECK:       }
 void test_private_bool() {
   _Bool b = 1;
   // CHECK: cir.func{{.*}}@{{.*}}test_private_bool

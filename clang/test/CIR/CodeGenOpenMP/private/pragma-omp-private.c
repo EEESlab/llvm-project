@@ -5,7 +5,10 @@
 
 void use(int);
 
-// CHECK-LABEL: omp.private {type = private} @x.privatizer : i32
+// CHECK-LABEL: omp.private {type = private} @x.privatizer : i32 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[PRIV_ALLOC:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[PRIV_ALLOC]] : !llvm.ptr)
+// CHECK:       }
 void test_parallel_private() {
   int x = 0;
   // CHECK: cir.func{{.*}}@{{.*}}test_parallel_private
@@ -35,8 +38,14 @@ void test_parallel_private() {
 }
 
 // Two private vars
-// CHECK-LABEL: omp.private {type = private} @a.privatizer : i32
-// CHECK-LABEL: omp.private {type = private} @b.privatizer : i32
+// CHECK-LABEL: omp.private {type = private} @a.privatizer : i32 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[A_PRIV_ALLOC:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[A_PRIV_ALLOC]] : !llvm.ptr)
+// CHECK:       }
+// CHECK-LABEL: omp.private {type = private} @b.privatizer : i32 init {
+// CHECK:       ^bb0(%{{.*}}: !llvm.ptr, %[[B_PRIV_ALLOC:.*]]: !llvm.ptr):
+// CHECK:         omp.yield(%[[B_PRIV_ALLOC]] : !llvm.ptr)
+// CHECK:       }
 void test_parallel_private_multi() {
   int a = 1, b = 2;
   // CHECK: cir.func{{.*}}@{{.*}}test_parallel_private_multi
