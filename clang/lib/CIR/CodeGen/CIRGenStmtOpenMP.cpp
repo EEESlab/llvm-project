@@ -367,8 +367,52 @@ CIRGenFunction::emitOMPSectionDirective(const OMPSectionDirective &s) {
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
-  getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPSingleDirective");
-  return mlir::failure();
+  mlir::LogicalResult res = mlir::success();
+  mlir::Location begin = getLoc(s.getBeginLoc());
+  mlir::Location end = getLoc(s.getEndLoc());
+
+  mlir::omp::SingleOperands clauseOps;
+
+  // Handle nowait clause.
+  for (const OMPClause *c : s.clauses()) {
+    if (isa<OMPNowaitClause>(c))
+      clauseOps.nowait = builder.getUnitAttr();
+  }
+
+  auto singleOp =
+      mlir::omp::SingleOp::create(builder, begin, clauseOps);
+
+  // Data sharing: collect private/firstprivate vars.
+  OMPPrivateClauseOps privClauseOps;
+  OMPDataSharingProcessor dsp(*this, builder, begin);
+  dsp.processStep1(s.clauses(), privClauseOps, singleOp);
+
+  if (dsp.hasPrivateVars()) {
+    singleOp.getPrivateVarsMutable().append(privClauseOps.privateVars);
+    singleOp.setPrivateSymsAttr(
+        mlir::ArrayAttr::get(builder.getContext(), privClauseOps.privateSyms));
+  }
+
+  {
+    mlir::Block &block = singleOp.getRegion().emplaceBlock();
+    dsp.addBlockArgs(block);
+
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(&block);
+
+    auto remapGuard = dsp.applyRemapping();
+
+    LexicalScope ls{*this, begin, builder.getInsertionBlock()};
+
+    const Stmt *bodyStmt = s.getAssociatedStmt();
+    if (const auto *cs = dyn_cast<CapturedStmt>(bodyStmt))
+      bodyStmt = cs->getCapturedStmt();
+    res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
+
+    mlir::omp::TerminatorOp::create(builder, end);
+  }
+
+  return res;
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPMasterDirective(const OMPMasterDirective &s) {
