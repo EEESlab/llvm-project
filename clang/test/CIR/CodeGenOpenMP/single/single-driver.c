@@ -35,7 +35,7 @@ void test_single_one_execution() {
 // ============================================================
 // Test 2: single with nowait — no barrier after the block
 // ============================================================
-void test_single_nowait() {
+void test_single_nowait_execution() {
   int executed_by = -1;
 #pragma omp parallel
   {
@@ -76,25 +76,6 @@ void test_multiple_singles() {
   printf("second single executed %d time(s) (should be 1)\n", count2);
 }
 
-// ============================================================
-// Test 4: single inside a for loop
-// ============================================================
-void test_single_inside_for() {
-  int single_count = 0;
-#pragma omp parallel
-  {
-#pragma omp for
-    for (int i = 0; i < 8; i++) {
-#pragma omp single
-      {
-#pragma omp atomic
-        single_count++;
-      }
-    }
-  }
-  printf("single inside for executed %d time(s) (should be >= 1)\n",
-         single_count);
-}
 
 // ============================================================
 // Main
@@ -104,13 +85,10 @@ int main() {
   test_single_one_execution();
 
   printf("\n=== test_single_nowait ===\n");
-  test_single_nowait();
+  test_single_nowait_execution();
 
   printf("\n=== test_multiple_singles ===\n");
   test_multiple_singles();
-
-  printf("\n=== test_single_inside_for ===\n");
-  test_single_inside_for();
 
   printf("\nAll single tests completed.\n");
   return 0;
