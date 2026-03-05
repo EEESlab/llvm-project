@@ -1002,14 +1002,20 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       block->addArgument(loopBoundsType, scopeLoc);
       builder.setInsertionPointToStart(block);
 
-      // Remap private variables: cast wsloop block args (!llvm.ptr) to CIR
-      // pointers. These casts are placed here (loop_nest body) rather than in
-      // the wsloop body, which must contain exactly one nested op (loop_nest).
-      // The RAII guard restores original mappings when it goes out of scope.
+      // Remap private and reduction variables: cast wsloop block args
+      // (!llvm.ptr) to CIR pointers. These casts are placed here (loop_nest
+      // body) rather than in the wsloop body, which must contain exactly one
+      // nested op (loop_nest). The RAII guards restore original mappings when
+      // they go out of scope.
       std::optional<OMPDataSharingProcessor::RemapGuard> remapGuard;
       if (currentOMPDataSharingProcessor &&
           currentOMPDataSharingProcessor->hasPrivateVars())
         remapGuard.emplace(currentOMPDataSharingProcessor->applyRemapping());
+
+      std::optional<OMPDataSharingProcessor::RemapGuard> redRemapGuard;
+      if (currentOMPReductionProcessor &&
+          currentOMPReductionProcessor->hasReductionVars())
+        redRemapGuard.emplace(currentOMPReductionProcessor->applyRemapping());
 
       // Store the IV block argument into the loop variable alloca, converting
       // back from standard integer to CIR integer type.

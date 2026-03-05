@@ -14,9 +14,11 @@
 #include "CIRGenFunction.h"
 #include "CIRGenModule.h"
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclarationName.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -212,4 +214,291 @@ OMPDataSharingProcessor::applyRemapping() {
         Address(cirPtr, entry.elementType, CharUnits::One()));
   }
   return RemapGuard(cgf, std::move(saved));
+}
+
+//===----------------------------------------------------------------------===//
+// OMPReductionProcessor
+//===----------------------------------------------------------------------===//
+
+OMPReductionProcessor::OMPReductionProcessor(CIRGenFunction &cgf,
+                                             CIRGenBuilderTy &builder,
+                                             mlir::Location loc)
+    : cgf(cgf), builder(builder), loc(loc) {}
+
+mlir::Type
+OMPReductionProcessor::convertCIRTypeToStdType(mlir::Type cirType) {
+  mlir::MLIRContext *ctx = builder.getContext();
+
+  if (auto intTy = mlir::dyn_cast<cir::IntType>(cirType))
+    return mlir::IntegerType::get(ctx, intTy.getWidth());
+  if (mlir::isa<cir::BoolType>(cirType))
+    return mlir::IntegerType::get(ctx, 1);
+  if (mlir::isa<cir::SingleType>(cirType))
+    return mlir::Float32Type::get(ctx);
+  if (mlir::isa<cir::DoubleType>(cirType))
+    return mlir::Float64Type::get(ctx);
+  if (mlir::isa<cir::FP16Type>(cirType))
+    return mlir::Float16Type::get(ctx);
+  if (mlir::isa<cir::BF16Type>(cirType))
+    return mlir::BFloat16Type::get(ctx);
+  if (mlir::isa<cir::FP80Type>(cirType))
+    return mlir::Float80Type::get(ctx);
+  if (mlir::isa<cir::FP128Type>(cirType))
+    return mlir::Float128Type::get(ctx);
+  if (auto ldTy = mlir::dyn_cast<cir::LongDoubleType>(cirType))
+    return convertCIRTypeToStdType(ldTy.getUnderlying());
+
+  cgf.getCIRGenModule().errorNYI(loc,
+                                 "reduction clause for unsupported type");
+  return {};
+}
+
+mlir::Value OMPReductionProcessor::getReductionInitValue(
+    mlir::Type stdType, OMPReductionKind redKind) {
+  if (mlir::isa<mlir::IntegerType>(stdType)) {
+    int64_t initVal = 0;
+    switch (redKind) {
+    case OMPReductionKind::Add:
+    case OMPReductionKind::BitwiseOr:
+    case OMPReductionKind::BitwiseXor:
+    case OMPReductionKind::LogicalOr:
+      initVal = 0;
+      break;
+    case OMPReductionKind::Multiply:
+    case OMPReductionKind::BitwiseAnd:
+    case OMPReductionKind::LogicalAnd:
+      initVal = 1;
+      break;
+    }
+    return mlir::arith::ConstantOp::create(
+        builder, loc, stdType,
+        builder.getIntegerAttr(stdType, initVal));
+  }
+
+  if (mlir::isa<mlir::FloatType>(stdType)) {
+    double initVal = 0.0;
+    switch (redKind) {
+    case OMPReductionKind::Add:
+      initVal = 0.0;
+      break;
+    case OMPReductionKind::Multiply:
+      initVal = 1.0;
+      break;
+    default:
+      cgf.getCIRGenModule().errorNYI(
+          loc, "reduction init value for non-arithmetic float operator");
+      return {};
+    }
+    return mlir::arith::ConstantOp::create(
+        builder, loc, stdType,
+        builder.getFloatAttr(stdType, initVal));
+  }
+
+  cgf.getCIRGenModule().errorNYI(loc, "reduction init for unsupported type");
+  return {};
+}
+
+mlir::Value OMPReductionProcessor::createCombiner(mlir::Value lhs,
+                                                  mlir::Value rhs,
+                                                  mlir::Type stdType,
+                                                  OMPReductionKind redKind) {
+  bool isInt = mlir::isa<mlir::IntegerType>(stdType);
+  bool isFloat = mlir::isa<mlir::FloatType>(stdType);
+
+  switch (redKind) {
+  case OMPReductionKind::Add:
+    if (isInt)
+      return mlir::arith::AddIOp::create(builder, loc, lhs, rhs);
+    if (isFloat)
+      return mlir::arith::AddFOp::create(builder, loc, lhs, rhs);
+    break;
+  case OMPReductionKind::Multiply:
+    if (isInt)
+      return mlir::arith::MulIOp::create(builder, loc, lhs, rhs);
+    if (isFloat)
+      return mlir::arith::MulFOp::create(builder, loc, lhs, rhs);
+    break;
+  case OMPReductionKind::BitwiseAnd:
+    assert(isInt && "bitwise AND requires integer type");
+    return mlir::arith::AndIOp::create(builder, loc, lhs, rhs);
+  case OMPReductionKind::BitwiseOr:
+    assert(isInt && "bitwise OR requires integer type");
+    return mlir::arith::OrIOp::create(builder, loc, lhs, rhs);
+  case OMPReductionKind::BitwiseXor:
+    assert(isInt && "bitwise XOR requires integer type");
+    return mlir::arith::XOrIOp::create(builder, loc, lhs, rhs);
+  case OMPReductionKind::LogicalAnd:
+    assert(isInt && "logical AND requires integer type");
+    return mlir::arith::AndIOp::create(builder, loc, lhs, rhs);
+  case OMPReductionKind::LogicalOr:
+    assert(isInt && "logical OR requires integer type");
+    return mlir::arith::OrIOp::create(builder, loc, lhs, rhs);
+  }
+
+  cgf.getCIRGenModule().errorNYI(loc, "reduction combiner for type/op combo");
+  return {};
+}
+
+void OMPReductionProcessor::getOrCreateDeclareReduction(
+    llvm::StringRef name, mlir::Type stdType, OMPReductionKind redKind) {
+  auto moduleOp = cgf.getCIRGenModule().getModule();
+  if (moduleOp.lookupSymbol<mlir::omp::DeclareReductionOp>(name))
+    return;
+
+  mlir::OpBuilder::InsertionGuard guard(builder);
+  builder.setInsertionPointToStart(moduleOp.getBody());
+
+  auto declOp = mlir::omp::DeclareReductionOp::create(
+      builder, loc, name, stdType, /*byref_element_type=*/{});
+
+  // Init region: 1 block arg of stdType, yields the neutral element.
+  {
+    mlir::Region &initRegion = declOp.getInitializerRegion();
+    mlir::Block *initBlock =
+        builder.createBlock(&initRegion, initRegion.end(), {stdType}, {loc});
+    builder.setInsertionPointToEnd(initBlock);
+    mlir::Value initVal = getReductionInitValue(stdType, redKind);
+    mlir::omp::YieldOp::create(builder, loc, mlir::ValueRange{initVal});
+  }
+
+  // Combiner region: 2 block args of stdType, yields the combined result.
+  {
+    mlir::Region &combinerRegion = declOp.getReductionRegion();
+    mlir::Block *combBlock = builder.createBlock(
+        &combinerRegion, combinerRegion.end(), {stdType, stdType}, {loc, loc});
+    builder.setInsertionPointToEnd(combBlock);
+    mlir::Value combined = createCombiner(
+        combBlock->getArgument(0), combBlock->getArgument(1), stdType,
+        redKind);
+    mlir::omp::YieldOp::create(builder, loc, mlir::ValueRange{combined});
+  }
+}
+
+/// Map Clang's overloaded operator kind to our OMPReductionKind.
+static std::optional<OMPReductionKind>
+mapOverloadedOpToReductionKind(OverloadedOperatorKind op) {
+  switch (op) {
+  case OO_Plus:
+  case OO_Minus: // reduction(-:x) has same combiner as +
+    return OMPReductionKind::Add;
+  case OO_Star:
+    return OMPReductionKind::Multiply;
+  case OO_Amp:
+    return OMPReductionKind::BitwiseAnd;
+  case OO_Pipe:
+    return OMPReductionKind::BitwiseOr;
+  case OO_Caret:
+    return OMPReductionKind::BitwiseXor;
+  case OO_AmpAmp:
+    return OMPReductionKind::LogicalAnd;
+  case OO_PipePipe:
+    return OMPReductionKind::LogicalOr;
+  default:
+    return std::nullopt;
+  }
+}
+
+/// Get a human-readable name for a reduction kind.
+static llvm::StringRef getReductionKindName(OMPReductionKind kind) {
+  switch (kind) {
+  case OMPReductionKind::Add:
+    return "add";
+  case OMPReductionKind::Multiply:
+    return "multiply";
+  case OMPReductionKind::BitwiseAnd:
+    return "band";
+  case OMPReductionKind::BitwiseOr:
+    return "bor";
+  case OMPReductionKind::BitwiseXor:
+    return "bxor";
+  case OMPReductionKind::LogicalAnd:
+    return "land";
+  case OMPReductionKind::LogicalOr:
+    return "lor";
+  }
+  llvm_unreachable("unknown reduction kind");
+}
+
+void OMPReductionProcessor::processReductionVars(
+    llvm::ArrayRef<const OMPClause *> clauses,
+    OMPReductionClauseOps &clauseOps, mlir::Operation *insertBeforeOp) {
+
+  for (const OMPClause *c : clauses) {
+    const auto *redClause = dyn_cast<OMPReductionClause>(c);
+    if (!redClause)
+      continue;
+
+    // Determine the reduction operator kind.
+    DeclarationName redName = redClause->getNameInfo().getName();
+    OverloadedOperatorKind ooKind = redName.getCXXOverloadedOperator();
+    auto redKind = mapOverloadedOpToReductionKind(ooKind);
+    if (!redKind) {
+      cgf.getCIRGenModule().errorNYI(
+          redClause->getBeginLoc(),
+          "reduction clause with unsupported operator");
+      continue;
+    }
+
+    for (const Expr *varExpr : redClause->varlist()) {
+      const auto *dre = cast<DeclRefExpr>(varExpr->IgnoreParenImpCasts());
+      const auto *vd = cast<VarDecl>(dre->getDecl());
+
+      Address addr = cgf.getAddrOfLocalVar(vd);
+      mlir::Value originalAddr = addr.getPointer();
+      mlir::Type elementType = addr.getElementType();
+
+      mlir::Type stdType = convertCIRTypeToStdType(elementType);
+      if (!stdType)
+        continue;
+
+      // Build a unique name for the declare_reduction op.
+      std::string declName =
+          (getReductionKindName(*redKind) + "_" + vd->getNameAsString())
+              .str();
+      getOrCreateDeclareReduction(declName, stdType, *redKind);
+
+      entries.push_back({vd, originalAddr, elementType, declName, {}});
+    }
+  }
+
+  // Build clauseOps: cast !cir.ptr → !llvm.ptr BEFORE the target op.
+  if (!entries.empty()) {
+    mlir::Type llvmPtrTy =
+        mlir::LLVM::LLVMPointerType::get(builder.getContext());
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPoint(insertBeforeOp);
+    for (auto &entry : entries) {
+      mlir::Value stdPtr =
+          mlir::UnrealizedConversionCastOp::create(builder, loc, llvmPtrTy,
+                                                   entry.originalAddr)
+              .getResult(0);
+      clauseOps.reductionVars.push_back(stdPtr);
+      clauseOps.reductionSyms.push_back(mlir::FlatSymbolRefAttr::get(
+          builder.getContext(), entry.reductionName));
+      clauseOps.reductionByref.push_back(false);
+    }
+  }
+}
+
+void OMPReductionProcessor::addBlockArgs(mlir::Block &block) {
+  mlir::Type llvmPtrTy =
+      mlir::LLVM::LLVMPointerType::get(builder.getContext());
+  for (auto &entry : entries)
+    entry.blockArg = block.addArgument(llvmPtrTy, loc);
+}
+
+OMPDataSharingProcessor::RemapGuard
+OMPReductionProcessor::applyRemapping() {
+  llvm::SmallVector<std::pair<const VarDecl *, Address>> saved;
+  for (auto &entry : entries) {
+    mlir::Value cirPtr =
+        mlir::UnrealizedConversionCastOp::create(
+            builder, loc, entry.originalAddr.getType(), entry.blockArg)
+            .getResult(0);
+    saved.push_back({entry.varDecl, cgf.getAddrOfLocalVar(entry.varDecl)});
+    cgf.replaceAddrOfLocalVar(
+        entry.varDecl,
+        Address(cirPtr, entry.elementType, CharUnits::One()));
+  }
+  return OMPDataSharingProcessor::RemapGuard(cgf, std::move(saved));
 }

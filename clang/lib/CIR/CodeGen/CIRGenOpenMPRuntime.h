@@ -111,6 +111,76 @@ private:
                             mlir::omp::DataSharingClauseType dsType);
 };
 
+/// Supported reduction operator kinds for OpenMP.
+enum class OMPReductionKind {
+  Add,      // +
+  Multiply, // *
+  BitwiseAnd, // &
+  BitwiseOr,  // |
+  BitwiseXor, // ^
+  LogicalAnd, // &&
+  LogicalOr,  // ||
+};
+
+/// Accumulated reduction operands to attach to an OpenMP op.
+struct OMPReductionClauseOps {
+  llvm::SmallVector<mlir::Value> reductionVars;
+  llvm::SmallVector<mlir::Attribute> reductionSyms;
+  llvm::SmallVector<bool> reductionByref;
+};
+
+/// Per-variable metadata collected during reduction clause processing.
+struct OMPReductionVarEntry {
+  const VarDecl *varDecl;
+  mlir::Value originalAddr;   // !cir.ptr<T>
+  mlir::Type elementType;     // CIR element type T
+  std::string reductionName;
+  mlir::Value blockArg;       // !llvm.ptr, filled by addReductionBlockArgs()
+};
+
+/// Processes OpenMP reduction clauses for CIR codegen.
+class OMPReductionProcessor {
+public:
+  OMPReductionProcessor(CIRGenFunction &cgf, CIRGenBuilderTy &builder,
+                        mlir::Location loc);
+
+  /// Collect reduction vars from clauses, create module-level
+  /// omp.declare_reduction ops, populate clauseOps.
+  void processReductionVars(llvm::ArrayRef<const OMPClause *> clauses,
+                            OMPReductionClauseOps &clauseOps,
+                            mlir::Operation *insertBeforeOp);
+
+  /// Add !llvm.ptr block arguments for each reduction var.
+  void addBlockArgs(mlir::Block &block);
+
+  /// Insert !llvm.ptr → !cir.ptr casts and remap localDeclMap.
+  /// Returns RAII guard that restores original mappings.
+  OMPDataSharingProcessor::RemapGuard applyRemapping();
+
+  bool hasReductionVars() const { return !entries.empty(); }
+
+private:
+  CIRGenFunction &cgf;
+  CIRGenBuilderTy &builder;
+  mlir::Location loc;
+  llvm::SmallVector<OMPReductionVarEntry> entries;
+
+  /// Convert CIR element type to standard MLIR type (reuses DSP's logic).
+  mlir::Type convertCIRTypeToStdType(mlir::Type cirType);
+
+  /// Create or reuse an omp.declare_reduction at module level.
+  void getOrCreateDeclareReduction(llvm::StringRef name, mlir::Type stdType,
+                                   OMPReductionKind redKind);
+
+  /// Get the neutral element for a given reduction kind and type.
+  mlir::Value getReductionInitValue(mlir::Type stdType,
+                                    OMPReductionKind redKind);
+
+  /// Create the combiner operation for a given reduction kind.
+  mlir::Value createCombiner(mlir::Value lhs, mlir::Value rhs,
+                             mlir::Type stdType, OMPReductionKind redKind);
+};
+
 } // namespace clang::CIRGen
 
 #endif // CLANG_LIB_CIR_CODEGEN_CIRGENOPENMPRUNTIME_H

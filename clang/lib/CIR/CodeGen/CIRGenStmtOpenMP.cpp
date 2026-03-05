@@ -58,15 +58,31 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
         mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
+  // Reduction: collect reduction vars, create omp.declare_reduction ops.
+  OMPReductionClauseOps redClauseOps;
+  OMPReductionProcessor rdp(*this, builder, begin);
+  rdp.processReductionVars(s.clauses(), redClauseOps, parallelOp);
+
+  if (rdp.hasReductionVars()) {
+    parallelOp.getReductionVarsMutable().append(redClauseOps.reductionVars);
+    parallelOp.setReductionSymsAttr(
+        mlir::ArrayAttr::get(builder.getContext(), redClauseOps.reductionSyms));
+    parallelOp.setReductionByrefAttr(
+        mlir::DenseBoolArrayAttr::get(builder.getContext(),
+                                      redClauseOps.reductionByref));
+  }
+
   {
     mlir::Block &block = parallelOp.getRegion().emplaceBlock();
     dsp.addBlockArgs(block);
+    rdp.addBlockArgs(block);
 
     mlir::OpBuilder::InsertionGuard guardCase(builder);
     builder.setInsertionPointToEnd(&block);
 
     // RAII remapping: casts block args to CIR pointers and remaps localDeclMap.
     auto remapGuard = dsp.applyRemapping();
+    auto redRemapGuard = rdp.applyRemapping();
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
@@ -262,7 +278,7 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   llvm::SmallVector<mlir::Value> operands;
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
 
-  // Process non-private clauses.
+  // Process non-private clauses (schedule, etc.).
   emitOpenMPClauses(wsloopOp, s.clauses());
 
   // Data sharing: collect private vars, create omp.private ops, build operands.
@@ -276,28 +292,47 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
         mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
-  // Create the wsloop region block. Block args for private vars are added here;
-  // the corresponding remapping casts are emitted inside the loop_nest body
-  // (in emitForStmt) to satisfy the wsloop "exactly one nested op" constraint.
+  // Reduction: collect reduction vars, create omp.declare_reduction ops.
+  OMPReductionClauseOps redClauseOps;
+  OMPReductionProcessor rdp(*this, builder, begin);
+  rdp.processReductionVars(s.clauses(), redClauseOps, wsloopOp);
+
+  if (rdp.hasReductionVars()) {
+    wsloopOp.getReductionVarsMutable().append(redClauseOps.reductionVars);
+    wsloopOp.setReductionSymsAttr(
+        mlir::ArrayAttr::get(builder.getContext(), redClauseOps.reductionSyms));
+    wsloopOp.setReductionByrefAttr(
+        mlir::DenseBoolArrayAttr::get(builder.getContext(),
+                                      redClauseOps.reductionByref));
+  }
+
+  // Create the wsloop region block. Block args for private and reduction vars
+  // are added here; the corresponding remapping casts are emitted inside the
+  // loop_nest body (in emitForStmt) to satisfy the wsloop "exactly one nested
+  // op" constraint.
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
   region.push_back(block);
   dsp.addBlockArgs(*block);
+  rdp.addBlockArgs(*block);
 
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(block);
 
-  // Store the processor for deferred remapping in emitForStmt.
+  // Store processors for deferred remapping in emitForStmt.
   assert(!currentOMPDataSharingProcessor &&
          "nested wsloop privatization not supported");
   currentOMPDataSharingProcessor = &dsp;
+  currentOMPReductionProcessor = &rdp;
 
   // Emit the ForStmt body (will create loop_nest as the single nested op).
-  // Variable remapping for private vars happens inside the loop_nest body.
+  // Variable remapping for private/reduction vars happens inside the loop_nest
+  // body.
   if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
     res = mlir::failure();
 
   currentOMPDataSharingProcessor = nullptr;
+  currentOMPReductionProcessor = nullptr;
   currentOMPLoopBounds = std::nullopt;
 
   return res;

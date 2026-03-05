@@ -73,6 +73,79 @@ public:
   void VisitOMPPrivateClause(const OMPPrivateClause *) {}
   void VisitOMPFirstprivateClause(const OMPFirstprivateClause *) {}
 
+  // Reduction clauses are handled by OMPReductionProcessor in the directive
+  // emitters. This visitor intentionally does nothing.
+  void VisitOMPReductionClause(const OMPReductionClause *) {}
+
+  void VisitOMPScheduleClause(const OMPScheduleClause *clause) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::WsloopOp>) {
+      mlir::MLIRContext *ctx = builder.getContext();
+
+      // Map Clang schedule kind to MLIR schedule kind.
+      mlir::omp::ClauseScheduleKind schedKind;
+      switch (clause->getScheduleKind()) {
+      case OMPC_SCHEDULE_static:
+        schedKind = mlir::omp::ClauseScheduleKind::Static;
+        break;
+      case OMPC_SCHEDULE_dynamic:
+        schedKind = mlir::omp::ClauseScheduleKind::Dynamic;
+        break;
+      case OMPC_SCHEDULE_guided:
+        schedKind = mlir::omp::ClauseScheduleKind::Guided;
+        break;
+      case OMPC_SCHEDULE_auto:
+        schedKind = mlir::omp::ClauseScheduleKind::Auto;
+        break;
+      case OMPC_SCHEDULE_runtime:
+        schedKind = mlir::omp::ClauseScheduleKind::Runtime;
+        break;
+      case OMPC_SCHEDULE_unknown:
+        llvm_unreachable("unknown schedule kind");
+      }
+      operation.setScheduleKindAttr(
+          mlir::omp::ClauseScheduleKindAttr::get(ctx, schedKind));
+
+      // Map schedule modifiers (monotonic/nonmonotonic/simd).
+      auto mapModifier = [&](OpenMPScheduleClauseModifier mod) {
+        switch (mod) {
+        case OMPC_SCHEDULE_MODIFIER_monotonic:
+          operation.setScheduleModAttr(mlir::omp::ScheduleModifierAttr::get(
+              ctx, mlir::omp::ScheduleModifier::monotonic));
+          break;
+        case OMPC_SCHEDULE_MODIFIER_nonmonotonic:
+          operation.setScheduleModAttr(mlir::omp::ScheduleModifierAttr::get(
+              ctx, mlir::omp::ScheduleModifier::nonmonotonic));
+          break;
+        case OMPC_SCHEDULE_MODIFIER_simd:
+          operation.setScheduleSimdAttr(builder.getUnitAttr());
+          break;
+        default:
+          break;
+        }
+      };
+      mapModifier(clause->getFirstScheduleModifier());
+      mapModifier(clause->getSecondScheduleModifier());
+
+      // Handle chunk size expression.
+      if (const Expr *chunkExpr = clause->getChunkSize()) {
+        mlir::Value cirChunk = cgf.emitScalarExpr(chunkExpr);
+        // Convert CIR int to standard MLIR int for the omp dialect.
+        if (auto cirIntTy = mlir::dyn_cast<cir::IntType>(cirChunk.getType())) {
+          mlir::Type stdIntTy = builder.getIntegerType(cirIntTy.getWidth());
+          mlir::Value stdChunk =
+              mlir::UnrealizedConversionCastOp::create(builder,
+                  cgf.getLoc(clause->getBeginLoc()), stdIntTy, cirChunk)
+                  .getResult(0);
+          operation.getScheduleChunkMutable().assign(stdChunk);
+        }
+      }
+    } else {
+      cgf.cgm.errorNYI(
+          clause->getBeginLoc(),
+          "OMPScheduleClause unimplemented on this directive kind");
+    }
+  }
+
   void emitClauses(ArrayRef<const OMPClause *> clauses) {
     for (const auto *c : clauses)
       this->Visit(c);

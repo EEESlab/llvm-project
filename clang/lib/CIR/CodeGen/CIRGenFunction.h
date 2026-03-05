@@ -52,6 +52,7 @@ namespace clang::CIRGen {
 
 struct CGCoroData;
 class OMPDataSharingProcessor;
+class OMPReductionProcessor;
 
 class CIRGenFunction : public CIRGenTypeCache {
 public:
@@ -120,6 +121,9 @@ public:
 
   // Active data sharing processor for wsloop deferred remapping in emitForStmt.
   OMPDataSharingProcessor *currentOMPDataSharingProcessor = nullptr;
+
+  // Active reduction processor for wsloop deferred remapping in emitForStmt.
+  OMPReductionProcessor *currentOMPReductionProcessor = nullptr;
 
   // Holds coroutine data if the current function is a coroutine. We use a
   // wrapper to manage its lifetime, so that we don't have to define CGCoroData
