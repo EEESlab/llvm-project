@@ -372,8 +372,28 @@ CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPMasterDirective(const OMPMasterDirective &s) {
-  getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPMasterDirective");
-  return mlir::failure();
+  mlir::LogicalResult res = mlir::success();
+  mlir::Location begin = getLoc(s.getBeginLoc());
+  mlir::Location end = getLoc(s.getEndLoc());
+
+  auto masterOp = mlir::omp::MasterOp::create(builder, begin);
+
+  {
+    mlir::Block &block = masterOp.getRegion().emplaceBlock();
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(&block);
+
+    LexicalScope ls{*this, begin, builder.getInsertionBlock()};
+
+    const Stmt *bodyStmt = s.getAssociatedStmt();
+    if (const auto *cs = dyn_cast<CapturedStmt>(bodyStmt))
+      bodyStmt = cs->getCapturedStmt();
+    res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
+
+    mlir::omp::TerminatorOp::create(builder, end);
+  }
+
+  return res;
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPCriticalDirective(const OMPCriticalDirective &s) {
