@@ -1,240 +1,95 @@
 // Driver for manual testing of OpenMP private clause lowering.
 //
-// Usage (emit CIR):
-//   clang -cc1 -fopenmp -emit-cir -fclangir driver.c -o driver.cir
+// This file provides:
+//   - helper stubs (use, use_int, use_float, ...) called inside omp regions
+//   - a main() that calls the test functions defined in the .ll files
 //
-// Usage (emit LLVM IR):
-//   clang -cc1 -fopenmp -emit-llvm -fclangir driver.c -o driver.ll
-//
-// Usage (compile to object):
-//   clang -fopenmp -fclangir driver.c -c -o driver.o
+// Build example (link against a compiled .ll):
+//   clang pragma-omp-private.ll driver.c -fopenmp -L/usr/lib/llvm-18/lib -lomp -o test && ./test
 
 #include <stdio.h>
 
 // ============================================================
-// Parallel private — basic int
+// Helper stubs — called from inside OpenMP parallel regions
+// in the test .ll files. Keep them simple so the output is
+// observable but the logic stays in the test source.
 // ============================================================
-void test_parallel_private_int() {
-  int x = 10;
-#pragma omp parallel private(x)
-  {
-    x = 42;
-    printf("parallel private int: x = %d\n", x);
-  }
-  printf("after parallel: x = %d (should be 10)\n", x);
-}
+
+void use(int x)          { printf("  use(int)       = %d\n", x); }
+void use_int(int x)      { printf("  use_int        = %d\n", x); }
+void use_short(short x)  { printf("  use_short      = %d\n", (int)x); }
+void use_ll(long long x) { printf("  use_ll         = %lld\n", x); }
+void use_uint(unsigned x){ printf("  use_uint       = %u\n", x); }
+void use_float(float x)  { printf("  use_float      = %f\n", x); }
+void use_double(double x){ printf("  use_double     = %f\n", x); }
+void use_ptr(void *p)    { printf("  use_ptr        = %p\n", p); }
+void use_bool(int b)     { printf("  use_bool       = %d\n", b); }
 
 // ============================================================
-// Parallel private — multiple variables
+// Forward declarations — defined in the linked .ll file(s)
 // ============================================================
-void test_parallel_private_multi() {
-  int a = 1, b = 2;
-#pragma omp parallel private(a, b)
-  {
-    a = 100;
-    b = 200;
-    printf("parallel private multi: a=%d b=%d\n", a, b);
-  }
-  printf("after parallel: a=%d b=%d (should be 1, 2)\n", a, b);
-}
+
+// pragma-omp-private.ll
+extern void test_parallel_private(void);
+extern void test_parallel_private_multi(void);
+
+// pragma-omp-private-comprehensive.ll  (add/remove as needed)
+extern void test_write_private_parallel(void);
+extern void test_post_region_value(void);
+extern void test_private_short(void);
+extern void test_private_longlong(void);
+extern void test_private_unsigned(void);
+extern void test_nested_private(void);
+
+// pragma-omp-private-types.ll  (add/remove as needed)
+extern void test_private_float(void);
+extern void test_private_double(void);
+extern void test_private_pointer(void);
+extern void test_private_bool(void);
 
 // ============================================================
-// For private — basic int
+// Main — call whichever tests are defined in the linked .ll
+// Comment out groups that are not being linked.
 // ============================================================
-void test_for_private_int() {
-  int priv = 0;
-#pragma omp parallel
-  {
-#pragma omp for private(priv)
-    for (int i = 0; i < 4; i++) {
-      priv = i * 10;
-      printf("for private int: i=%d priv=%d\n", i, priv);
-    }
-  }
-  printf("after for: priv = %d (should be 0)\n", priv);
-}
+int main(void) {
+  // --- pragma-omp-private ---
+  printf("=== test_parallel_private ===\n");
+  test_parallel_private();
 
-// ============================================================
-// Nested: parallel private + for private
-// ============================================================
-void test_nested_private() {
-  int x = 1, y = 2;
-#pragma omp parallel private(x)
-  {
-    x = 99;
-#pragma omp for private(y)
-    for (int i = 0; i < 4; i++) {
-      y = i + x;
-      printf("nested: i=%d x=%d y=%d\n", i, x, y);
-    }
-  }
-  printf("after nested: x=%d y=%d (should be 1, 2)\n", x, y);
-}
-
-// ============================================================
-// Different scalar types
-// ============================================================
-void test_private_float() {
-  float f = 3.14f;
-#pragma omp parallel private(f)
-  {
-    f = 2.71f;
-    printf("parallel private float: f = %f\n", f);
-  }
-  printf("after parallel: f = %f (should be ~3.14)\n", f);
-}
-
-void test_private_double() {
-  double d = 1.41421356;
-#pragma omp parallel private(d)
-  {
-    d = 2.71828;
-    printf("parallel private double: d = %f\n", d);
-  }
-  printf("after parallel: d = %f (should be ~1.414)\n", d);
-}
-
-void test_private_pointer() {
-  int val = 55;
-  int *p = &val;
-#pragma omp parallel private(p)
-  {
-    p = NULL;
-    printf("parallel private pointer: p = %p\n", (void *)p);
-  }
-  printf("after parallel: *p = %d (should be 55)\n", *p);
-}
-
-void test_private_short() {
-  short s = 7;
-#pragma omp parallel private(s)
-  {
-    s = 123;
-    printf("parallel private short: s = %d\n", s);
-  }
-  printf("after parallel: s = %d (should be 7)\n", s);
-}
-
-void test_private_longlong() {
-  long long ll = 9999999999LL;
-#pragma omp parallel private(ll)
-  {
-    ll = 42;
-    printf("parallel private long long: ll = %lld\n", ll);
-  }
-  printf("after parallel: ll = %lld (should be 9999999999)\n", ll);
-}
-
-void test_private_unsigned() {
-  unsigned u = 12345;
-#pragma omp parallel private(u)
-  {
-    u = 0;
-    printf("parallel private unsigned: u = %u\n", u);
-  }
-  printf("after parallel: u = %u (should be 12345)\n", u);
-}
-
-// ============================================================
-// Firstprivate — basic int (copy from original)
-// ============================================================
-void test_firstprivate_int() {
-  int x = 42;
-#pragma omp parallel firstprivate(x)
-  {
-    printf("firstprivate int: x = %d (should be 42)\n", x);
-    x = 0;
-    printf("firstprivate int after modify: x = %d (should be 0)\n", x);
-  }
-  printf("after firstprivate: x = %d (should be 42)\n", x);
-}
-
-// ============================================================
-// Firstprivate — float
-// ============================================================
-void test_firstprivate_float() {
-  float f = 3.14f;
-#pragma omp parallel firstprivate(f)
-  {
-    printf("firstprivate float: f = %f (should be ~3.14)\n", f);
-    f = 0.0f;
-  }
-  printf("after firstprivate: f = %f (should be ~3.14)\n", f);
-}
-
-// ============================================================
-// Mixed private + firstprivate
-// ============================================================
-void test_mixed_private_firstprivate() {
-  int a = 10, b = 20;
-#pragma omp parallel private(a) firstprivate(b)
-  {
-    // a is uninitialized (private), b should be 20 (firstprivate)
-    printf("mixed: a=%d (uninitialized), b=%d (should be 20)\n", a, b);
-  }
-  printf("after mixed: a=%d b=%d (should be 10, 20)\n", a, b);
-}
-
-// ============================================================
-// Firstprivate on for loop
-// ============================================================
-void test_firstprivate_for() {
-  int val = 100;
-#pragma omp parallel
-  {
-#pragma omp for firstprivate(val)
-    for (int i = 0; i < 4; i++) {
-      printf("for firstprivate: i=%d val=%d (should be 100)\n", i, val);
-    }
-  }
-  printf("after for firstprivate: val = %d (should be 100)\n", val);
-}
-
-// ============================================================
-// Main
-// ============================================================
-int main() {
-  printf("=== parallel private int ===\n");
-  test_parallel_private_int();
-
-  printf("\n=== parallel private multi ===\n");
+  printf("\n=== test_parallel_private_multi ===\n");
   test_parallel_private_multi();
 
-  printf("\n=== for private int ===\n");
-  test_for_private_int();
+  // --- pragma-omp-private-comprehensive ---
+  printf("\n=== test_write_private_parallel ===\n");
+  test_write_private_parallel();
 
-  printf("\n=== nested private ===\n");
-  test_nested_private();
+  printf("\n=== test_post_region_value ===\n");
+  test_post_region_value();
 
-  printf("\n=== private float ===\n");
-  test_private_float();
-
-  printf("\n=== private double ===\n");
-  test_private_double();
-
-  printf("\n=== private pointer ===\n");
-  test_private_pointer();
-
-  printf("\n=== private short ===\n");
+  printf("\n=== test_private_short ===\n");
   test_private_short();
 
-  printf("\n=== private long long ===\n");
+  printf("\n=== test_private_longlong ===\n");
   test_private_longlong();
 
-  printf("\n=== private unsigned ===\n");
+  printf("\n=== test_private_unsigned ===\n");
   test_private_unsigned();
 
-  printf("\n=== firstprivate int ===\n");
-  test_firstprivate_int();
+  printf("\n=== test_nested_private ===\n");
+  test_nested_private();
 
-  printf("\n=== firstprivate float ===\n");
-  test_firstprivate_float();
+  // --- pragma-omp-private-types ---
+  printf("\n=== test_private_float ===\n");
+  test_private_float();
 
-  printf("\n=== mixed private + firstprivate ===\n");
-  test_mixed_private_firstprivate();
+  printf("\n=== test_private_double ===\n");
+  test_private_double();
 
-  printf("\n=== firstprivate for ===\n");
-  test_firstprivate_for();
+  printf("\n=== test_private_pointer ===\n");
+  test_private_pointer();
+
+  printf("\n=== test_private_bool ===\n");
+  test_private_bool();
 
   printf("\nAll tests completed.\n");
   return 0;
