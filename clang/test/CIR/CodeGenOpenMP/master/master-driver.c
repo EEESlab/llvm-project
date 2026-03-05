@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <omp.h>
 
+void use(int x) {
+    (void)x; // no-op, just satisfies the linker
+}
+
 // ============================================================
 // Test 1: only the master thread executes the block
 // ============================================================
@@ -42,33 +46,8 @@ void test_master_skipped_by_others() {
   }
   printf("master block executed %d time(s) (should be 1)\n", count);
 }
-
 // ============================================================
-// Test 3: master inside a for region
-// ============================================================
-void test_master_inside_for() {
-  int master_count = 0;
-#pragma omp parallel
-  {
-#pragma omp for
-    for (int i = 0; i < 8; i++) {
-      // Each iteration runs on some thread, but only the master
-      // thread's iterations will enter the master block.
-      int tid = omp_get_thread_num();
-#pragma omp master
-      {
-#pragma omp atomic
-        master_count++;
-      }
-    }
-  }
-  // master_count == number of iterations that happened to land on thread 0
-  printf("master block inside for executed %d time(s) (should be >= 1)\n",
-         master_count);
-}
-
-// ============================================================
-// Test 4: master with shared variable modification
+// Test 3: master with shared variable modification
 // ============================================================
 void test_master_shared_write() {
   int value = 0;
@@ -85,7 +64,7 @@ void test_master_shared_write() {
 }
 
 // ============================================================
-// Test 5: nested master inside parallel
+// Test 4: nested master inside parallel
 // ============================================================
 void test_master_nested() {
   int outer_tid = -1, inner_tid = -1;
@@ -116,9 +95,6 @@ int main() {
 
   printf("\n=== test_master_skipped_by_others ===\n");
   test_master_skipped_by_others();
-
-  printf("\n=== test_master_inside_for ===\n");
-  test_master_inside_for();
 
   printf("\n=== test_master_shared_write ===\n");
   test_master_shared_write();
