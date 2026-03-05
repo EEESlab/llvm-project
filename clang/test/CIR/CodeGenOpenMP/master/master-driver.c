@@ -13,7 +13,7 @@
 #include <omp.h>
 
 void use(int x) {
-    (void)x; // no-op, just satisfies the linker
+    (void)x;
 }
 
 // ============================================================

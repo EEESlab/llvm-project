@@ -12,6 +12,10 @@
 #include <stdio.h>
 #include <omp.h>
 
+void use(int x) {
+    (void)x;
+}
+
 // ============================================================
 // Test 1: only one thread executes the single block
 // ============================================================
@@ -45,42 +49,13 @@ void test_single_nowait() {
          executed_by);
 }
 
-// ============================================================
-// Test 3: single with private
-// ============================================================
-void test_single_private() {
-  int x = 42;
-#pragma omp parallel
-  {
-#pragma omp single private(x)
-    {
-      // x is private (uninitialized), assign and print
-      x = 99;
-      printf("single private: x = %d (should be 99)\n", x);
-    }
-  }
-  printf("after single private: x = %d (should be 42)\n", x);
-}
+// NOTE: Tests for single+private and single+firstprivate are omitted here
+// because the upstream MLIR OpenMP -> LLVM IR translation does not yet support
+// privatization on omp.single (checkImplementationStatus rejects it).
+// CIR emission is correct — see pragma-omp-single.c for CIR-level tests.
 
 // ============================================================
-// Test 4: single with firstprivate
-// ============================================================
-void test_single_firstprivate() {
-  int val = 100;
-#pragma omp parallel
-  {
-#pragma omp single firstprivate(val)
-    {
-      printf("single firstprivate: val = %d (should be 100)\n", val);
-      val = 0;
-      printf("single firstprivate after modify: val = %d (should be 0)\n", val);
-    }
-  }
-  printf("after single firstprivate: val = %d (should be 100)\n", val);
-}
-
-// ============================================================
-// Test 5: multiple single blocks — each executed by one thread
+// Test 3: multiple single blocks — each executed by one thread
 // ============================================================
 void test_multiple_singles() {
   int count1 = 0, count2 = 0;
@@ -102,7 +77,7 @@ void test_multiple_singles() {
 }
 
 // ============================================================
-// Test 6: single inside a for loop
+// Test 4: single inside a for loop
 // ============================================================
 void test_single_inside_for() {
   int single_count = 0;
@@ -130,12 +105,6 @@ int main() {
 
   printf("\n=== test_single_nowait ===\n");
   test_single_nowait();
-
-  printf("\n=== test_single_private ===\n");
-  test_single_private();
-
-  printf("\n=== test_single_firstprivate ===\n");
-  test_single_firstprivate();
 
   printf("\n=== test_multiple_singles ===\n");
   test_multiple_singles();
