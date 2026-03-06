@@ -18,7 +18,6 @@
 #include "clang/AST/Expr.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
-#include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -270,7 +269,7 @@ mlir::Value OMPReductionProcessor::getReductionInitValue(
       initVal = 1;
       break;
     }
-    return mlir::arith::ConstantOp::create(
+    return mlir::LLVM::ConstantOp::create(
         builder, loc, stdType,
         builder.getIntegerAttr(stdType, initVal));
   }
@@ -289,7 +288,7 @@ mlir::Value OMPReductionProcessor::getReductionInitValue(
           loc, "reduction init value for non-arithmetic float operator");
       return {};
     }
-    return mlir::arith::ConstantOp::create(
+    return mlir::LLVM::ConstantOp::create(
         builder, loc, stdType,
         builder.getFloatAttr(stdType, initVal));
   }
@@ -308,31 +307,31 @@ mlir::Value OMPReductionProcessor::createCombiner(mlir::Value lhs,
   switch (redKind) {
   case OMPReductionKind::Add:
     if (isInt)
-      return mlir::arith::AddIOp::create(builder, loc, lhs, rhs);
+      return mlir::LLVM::AddOp::create(builder, loc, lhs, rhs);
     if (isFloat)
-      return mlir::arith::AddFOp::create(builder, loc, lhs, rhs);
+      return mlir::LLVM::FAddOp::create(builder, loc, lhs, rhs);
     break;
   case OMPReductionKind::Multiply:
     if (isInt)
-      return mlir::arith::MulIOp::create(builder, loc, lhs, rhs);
+      return mlir::LLVM::MulOp::create(builder, loc, lhs, rhs);
     if (isFloat)
-      return mlir::arith::MulFOp::create(builder, loc, lhs, rhs);
+      return mlir::LLVM::FMulOp::create(builder, loc, lhs, rhs);
     break;
   case OMPReductionKind::BitwiseAnd:
     assert(isInt && "bitwise AND requires integer type");
-    return mlir::arith::AndIOp::create(builder, loc, lhs, rhs);
+    return mlir::LLVM::AndOp::create(builder, loc, lhs, rhs);
   case OMPReductionKind::BitwiseOr:
     assert(isInt && "bitwise OR requires integer type");
-    return mlir::arith::OrIOp::create(builder, loc, lhs, rhs);
+    return mlir::LLVM::OrOp::create(builder, loc, lhs, rhs);
   case OMPReductionKind::BitwiseXor:
     assert(isInt && "bitwise XOR requires integer type");
-    return mlir::arith::XOrIOp::create(builder, loc, lhs, rhs);
+    return mlir::LLVM::XOrOp::create(builder, loc, lhs, rhs);
   case OMPReductionKind::LogicalAnd:
     assert(isInt && "logical AND requires integer type");
-    return mlir::arith::AndIOp::create(builder, loc, lhs, rhs);
+    return mlir::LLVM::AndOp::create(builder, loc, lhs, rhs);
   case OMPReductionKind::LogicalOr:
     assert(isInt && "logical OR requires integer type");
-    return mlir::arith::OrIOp::create(builder, loc, lhs, rhs);
+    return mlir::LLVM::OrOp::create(builder, loc, lhs, rhs);
   }
 
   cgf.getCIRGenModule().errorNYI(loc, "reduction combiner for type/op combo");

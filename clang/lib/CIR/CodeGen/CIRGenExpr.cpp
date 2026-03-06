@@ -1875,10 +1875,8 @@ LValue CIRGenFunction::emitBinaryOperatorLValue(const BinaryOperator *e) {
     else
       emitStoreThroughLValue(rv, lv);
 
-    if (getLangOpts().OpenMP) {
-      cgm.errorNYI(e->getSourceRange(), "openmp");
-      return {};
-    }
+    // TODO(OpenMP): checkAndEmitLastprivateConditional for
+    // lastprivate(conditional:)
 
     return lv;
   }

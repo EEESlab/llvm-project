@@ -4,11 +4,11 @@ void use(int);
 
 // CHECK: omp.declare_reduction @add_sum : i32 init {
 // CHECK: ^bb0(%{{.*}}: i32):
-// CHECK:   %[[ZERO:.*]] = arith.constant 0 : i32
+// CHECK:   %[[ZERO:.*]] = llvm.mlir.constant(0 : i32) : i32
 // CHECK:   omp.yield(%[[ZERO]] : i32)
 // CHECK: } combiner {
 // CHECK: ^bb0(%[[A0:.*]]: i32, %[[A1:.*]]: i32):
-// CHECK:   %[[RES:.*]] = arith.addi %[[A0]], %[[A1]] : i32
+// CHECK:   %[[RES:.*]] = llvm.add %[[A0]], %[[A1]] : i32
 // CHECK:   omp.yield(%[[RES]] : i32)
 // CHECK: }
 
@@ -27,11 +27,11 @@ void test_reduction_add_for() {
 
 // CHECK: omp.declare_reduction @multiply_prod : i32 init {
 // CHECK: ^bb0(%{{.*}}: i32):
-// CHECK:   %[[ONE:.*]] = arith.constant 1 : i32
+// CHECK:   %[[ONE:.*]] = llvm.mlir.constant(1 : i32) : i32
 // CHECK:   omp.yield(%[[ONE]] : i32)
 // CHECK: } combiner {
 // CHECK: ^bb0(%[[A0:.*]]: i32, %[[A1:.*]]: i32):
-// CHECK:   %[[RES:.*]] = arith.muli %[[A0]], %[[A1]] : i32
+// CHECK:   %[[RES:.*]] = llvm.mul %[[A0]], %[[A1]] : i32
 // CHECK:   omp.yield(%[[RES]] : i32)
 // CHECK: }
 
@@ -50,11 +50,11 @@ void test_reduction_mul_for() {
 
 // CHECK: omp.declare_reduction @add_fsum : f32 init {
 // CHECK: ^bb0(%{{.*}}: f32):
-// CHECK:   %[[FZERO:.*]] = arith.constant 0.000000e+00 : f32
+// CHECK:   %[[FZERO:.*]] = llvm.mlir.constant(0.000000e+00 : f32) : f32
 // CHECK:   omp.yield(%[[FZERO]] : f32)
 // CHECK: } combiner {
 // CHECK: ^bb0(%[[A0:.*]]: f32, %[[A1:.*]]: f32):
-// CHECK:   %[[RES:.*]] = arith.addf %[[A0]], %[[A1]] : f32
+// CHECK:   %[[RES:.*]] = llvm.fadd %[[A0]], %[[A1]] : f32
 // CHECK:   omp.yield(%[[RES]] : f32)
 // CHECK: }
 
@@ -73,11 +73,11 @@ void test_reduction_add_float() {
 
 // CHECK: omp.declare_reduction @band_mask : i32 init {
 // CHECK: ^bb0(%{{.*}}: i32):
-// CHECK:   %[[ONES:.*]] = arith.constant 1 : i32
+// CHECK:   %[[ONES:.*]] = llvm.mlir.constant(1 : i32) : i32
 // CHECK:   omp.yield(%[[ONES]] : i32)
 // CHECK: } combiner {
 // CHECK: ^bb0(%[[A0:.*]]: i32, %[[A1:.*]]: i32):
-// CHECK:   %[[RES:.*]] = arith.andi %[[A0]], %[[A1]] : i32
+// CHECK:   %[[RES:.*]] = llvm.and %[[A0]], %[[A1]] : i32
 // CHECK:   omp.yield(%[[RES]] : i32)
 // CHECK: }
 
@@ -96,11 +96,11 @@ void test_reduction_bitwise_and() {
 
 // CHECK: omp.declare_reduction @bor_flags : i32 init {
 // CHECK: ^bb0(%{{.*}}: i32):
-// CHECK:   %[[ZERO:.*]] = arith.constant 0 : i32
+// CHECK:   %[[ZERO:.*]] = llvm.mlir.constant(0 : i32) : i32
 // CHECK:   omp.yield(%[[ZERO]] : i32)
 // CHECK: } combiner {
 // CHECK: ^bb0(%[[A0:.*]]: i32, %[[A1:.*]]: i32):
-// CHECK:   %[[RES:.*]] = arith.ori %[[A0]], %[[A1]] : i32
+// CHECK:   %[[RES:.*]] = llvm.or %[[A0]], %[[A1]] : i32
 // CHECK:   omp.yield(%[[RES]] : i32)
 // CHECK: }
 

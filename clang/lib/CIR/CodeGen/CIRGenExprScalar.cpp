@@ -1486,8 +1486,7 @@ LValue ScalarExprEmitter::emitCompoundAssignLValue(
   else
     cgf.emitStoreThroughLValue(RValue::get(result), lhsLV);
 
-  if (cgf.getLangOpts().OpenMP)
-    cgf.cgm.errorNYI(e->getSourceRange(), "openmp");
+  // TODO(OpenMP): checkAndEmitLastprivateConditional for lastprivate(conditional:)
 
   return lhsLV;
 }
