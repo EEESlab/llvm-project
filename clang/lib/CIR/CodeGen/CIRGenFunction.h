@@ -2110,6 +2110,11 @@ public:
   mlir::LogicalResult emitOMPUnrollDirective(const OMPUnrollDirective &s);
   mlir::LogicalResult emitOMPFuseDirective(const OMPFuseDirective &s);
   mlir::LogicalResult emitOMPForDirective(const OMPForDirective &s);
+  /// Extract loop bounds from a ForStmt, emit the loop init, and populate
+  /// currentOMPLoopBounds. Shared by emitOMPForDirective and
+  /// emitOMPParallelForDirective.
+  mlir::LogicalResult extractOMPLoopBounds(const ForStmt *forStmt,
+                                           mlir::Location loc);
   mlir::LogicalResult emitOMPForSimdDirective(const OMPForSimdDirective &s);
   mlir::LogicalResult emitOMPSectionsDirective(const OMPSectionsDirective &s);
   mlir::LogicalResult emitOMPSectionDirective(const OMPSectionDirective &s);
