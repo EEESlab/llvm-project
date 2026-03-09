@@ -61,11 +61,9 @@ public:
         llvm_unreachable("unknown proc-bind kind");
       }
       operation.setProcBindKind(kind);
-    } else {
-      cgf.cgm.errorNYI(
-          clause->getBeginLoc(),
-          "OMPProcBindClause unimplemented on this directive kind");
     }
+    // For non-ParallelOp (e.g. WsloopOp in `parallel for`), proc_bind is
+    // handled when the outer parallel is processed. Intentionally a no-op here.
   }
 
   // Private and firstprivate clauses are handled by OMPDataSharingProcessor
@@ -139,11 +137,9 @@ public:
           operation.getScheduleChunkMutable().assign(stdChunk);
         }
       }
-    } else {
-      cgf.cgm.errorNYI(
-          clause->getBeginLoc(),
-          "OMPScheduleClause unimplemented on this directive kind");
     }
+    // For non-WsloopOp (e.g. ParallelOp in `parallel for`), schedule is
+    // handled when the inner wsloop is processed. Intentionally a no-op here.
   }
 
   void emitClauses(ArrayRef<const OMPClause *> clauses) {
