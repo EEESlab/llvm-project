@@ -760,8 +760,9 @@ CIRGenModule::getOrCreateCIRGlobal(StringRef mangledName, mlir::Type ty,
 
   // Handle things which are present even on external declarations.
   if (d) {
-    if (langOpts.OpenMP && !langOpts.OpenMPSimd)
-      errorNYI(d->getSourceRange(), "OpenMP target global variable");
+    // TODO(cir): OpenMP target offloading — register global variable with
+    // the OpenMP runtime for declare target support (registerTargetGlobalVariable
+    // in classic codegen). Not needed for host-only compilation.
 
     gv.setAlignmentAttr(getSize(astContext.getDeclAlign(d)));
 

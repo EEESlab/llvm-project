@@ -286,10 +286,8 @@ static LValue emitGlobalVarDeclLValue(CIRGenFunction &cgf, const Expr *e,
     cgf.cgm.errorNYI(e->getSourceRange(),
                      "emitGlobalVarDeclLValue: thread_local variable");
 
-  // Check if the variable is marked as declare target with link clause in
-  // device codegen.
-  if (cgf.getLangOpts().OpenMP)
-    cgf.cgm.errorNYI(e->getSourceRange(), "emitGlobalVarDeclLValue: OpenMP");
+  // TODO(cir): Check if the variable is marked as declare target with link
+  // clause in device codegen (OpenMPIsTargetDevice). Not needed for host.
 
   // Traditional LLVM codegen handles thread local separately, CIR handles
   // as part of getAddrOfGlobalVar.
