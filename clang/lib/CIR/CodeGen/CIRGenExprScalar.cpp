@@ -605,8 +605,8 @@ public:
   }
   mlir::Value emitScalarPrePostIncDec(const UnaryOperator *e, LValue lv,
                                       cir::UnaryOpKind kind, bool isPre) {
-    if (cgf.getLangOpts().OpenMP)
-      cgf.cgm.errorNYI(e->getSourceRange(), "inc/dec OpenMP");
+    // TODO(cir): handle OpenMP lastprivate conditional update
+    // (OMPLastprivateConditionalUpdateRAII in classic codegen).
 
     QualType type = e->getSubExpr()->getType();
 
