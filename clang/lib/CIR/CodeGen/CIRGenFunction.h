@@ -74,6 +74,10 @@ private:
     mlir::Type inductionVarType;
     const VarDecl *inductionVar;
     bool inclusive;
+    /// When the induction variable is declared outside the for-init (implicit
+    /// privatization), this holds the original address so it can be restored
+    /// after the wsloop.
+    Address savedInductionVarAddr = Address::invalid();
   };
 
   std::optional<LoopBounds> currentOMPLoopBounds;

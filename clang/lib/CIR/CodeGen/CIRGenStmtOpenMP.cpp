@@ -152,13 +152,34 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   mlir::Value upperBound;
   mlir::Value step;
   bool inclusive = false;
+  Address savedAddr = Address::invalid();
 
   // Extract loop variable type and lower bound.
-  const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit());
-  const auto *varDecl =
-      declStmt ? dyn_cast<VarDecl>(declStmt->getSingleDecl()) : nullptr;
+  // Two forms are supported:
+  //   1. DeclStmt:  for (int i = 0; ...)   — variable declared in the init.
+  //   2. Expr:      for (i = 0; ...)        — variable declared outside.
+  const VarDecl *varDecl = nullptr;
+  const Expr *initExpr = nullptr;
 
-  if (!varDecl)
+  if (const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit())) {
+    varDecl = dyn_cast<VarDecl>(declStmt->getSingleDecl());
+    if (!varDecl || !varDecl->hasInit())
+      return mlir::failure();
+    initExpr = varDecl->getInit();
+  } else if (const auto *binOp = dyn_cast_or_null<BinaryOperator>(
+                 forStmt->getInit())) {
+    // Handle `i = 0` where i is declared outside the for loop.
+    if (!binOp->isAssignmentOp())
+      return mlir::failure();
+    const auto *declRef =
+        dyn_cast<DeclRefExpr>(binOp->getLHS()->IgnoreParenImpCasts());
+    if (!declRef)
+      return mlir::failure();
+    varDecl = dyn_cast<VarDecl>(declRef->getDecl());
+    initExpr = binOp->getRHS();
+  }
+
+  if (!varDecl || !initExpr)
     return mlir::failure();
 
   // The loop variable's CIR integer type is the canonical type for all bounds.
@@ -167,13 +188,10 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   auto cirIntType = mlir::cast<cir::IntType>(cirType);
 
   // Extract lower bound.
-  if (!varDecl->hasInit())
-    return mlir::failure();
-
-  if (auto constVal = getIntLiteralValue(varDecl->getInit())) {
+  if (auto constVal = getIntLiteralValue(initExpr)) {
     lowerBound = builder.getConstInt(loc, cirIntType, *constVal);
   } else {
-    mlir::Value cirValue = emitScalarExpr(varDecl->getInit());
+    mlir::Value cirValue = emitScalarExpr(initExpr);
     lowerBound = ensureCIRIntType(builder, loc, cirValue, cirIntType);
   }
 
@@ -245,11 +263,26 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   if (!step)
     step = builder.getConstInt(loc, cirIntType, 1);
 
-  // Emit the loop init statement (e.g. `int i = 0`) to create the alloca
-  // for the induction variable.
-  if (forStmt->getInit())
-    if (emitStmt(forStmt->getInit(), /*useCurrentScope=*/true).failed())
+  // Emit the loop init to create the alloca for the induction variable.
+  // For DeclStmt (`int i = 0`), emitting the statement creates the alloca
+  // naturally. For assignment (`i = 0`), the variable is declared outside the
+  // loop. OpenMP requires the induction variable to be implicitly private, so
+  // we create a new private alloca inside the current region and remap
+  // localDeclMap to use it.
+  if (const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit())) {
+    if (emitStmt(declStmt, /*useCurrentScope=*/true).failed())
       return mlir::failure();
+  } else if (forStmt->getInit()) {
+    // Assignment init (e.g. `i = 0`): create a private alloca for implicit
+    // privatization of the induction variable.
+    savedAddr = getAddrOfLocalVar(varDecl);
+    Address privateAddr =
+        createMemTemp(loopVarQType, loc, varDecl->getName() + ".iv");
+    cir::StoreOp::create(builder, loc, lowerBound, privateAddr.getPointer(),
+                         /*is_volatile=*/nullptr, /*alignment=*/nullptr,
+                         /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
+    replaceAddrOfLocalVar(varDecl, privateAddr);
+  }
 
   // Convert CIR integer bounds to standard MLIR integers at the boundary.
   // omp.loop_nest requires IntLikeType (AnyInteger | Index), not CIR types.
@@ -259,7 +292,8 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   mlir::Type loopBoundsType = stdLB.getType();
 
   currentOMPLoopBounds =
-      LoopBounds{stdLB, stdUB, stdStep, loopBoundsType, varDecl, inclusive};
+      LoopBounds{stdLB, stdUB, stdStep, loopBoundsType, varDecl, inclusive,
+                 savedAddr};
   return mlir::success();
 }
 
@@ -340,6 +374,12 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
 
   currentOMPDataSharingProcessor = nullptr;
   currentOMPReductionProcessor = nullptr;
+
+  // Restore the original address mapping for the induction variable if it was
+  // implicitly privatized (declared outside the for-init).
+  if (currentOMPLoopBounds->savedInductionVarAddr.isValid())
+    replaceAddrOfLocalVar(currentOMPLoopBounds->inductionVar,
+                          currentOMPLoopBounds->savedInductionVarAddr);
   currentOMPLoopBounds = std::nullopt;
 
   return res;
@@ -584,6 +624,11 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
         res = mlir::failure();
     }
 
+    // Restore the original address mapping for the induction variable if it
+    // was implicitly privatized (declared outside the for-init).
+    if (currentOMPLoopBounds->savedInductionVarAddr.isValid())
+      replaceAddrOfLocalVar(currentOMPLoopBounds->inductionVar,
+                            currentOMPLoopBounds->savedInductionVarAddr);
     currentOMPLoopBounds = std::nullopt;
 
     // remapGuard restores original variable mappings on scope exit.
