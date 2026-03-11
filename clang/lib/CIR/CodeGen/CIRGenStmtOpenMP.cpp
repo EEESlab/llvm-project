@@ -366,9 +366,16 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   currentOMPDataSharingProcessor = &dsp;
   currentOMPReductionProcessor = &rdp;
 
+  // Save restore info before emitStmt, which clears currentOMPLoopBounds
+  // inside emitForStmt to prevent nested for-loops from being treated as
+  // additional omp.loop_nest ops.
+  Address savedAddr = currentOMPLoopBounds->savedInductionVarAddr;
+  const VarDecl *inductionVar = currentOMPLoopBounds->inductionVar;
+
   // Emit the ForStmt body (will create loop_nest as the single nested op).
   // Variable remapping for private/reduction vars happens inside the loop_nest
-  // body.
+  // body. Note: currentOMPLoopBounds is cleared inside emitForStmt after the
+  // loop_nest is created.
   if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
     res = mlir::failure();
 
@@ -377,10 +384,8 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
 
   // Restore the original address mapping for the induction variable if it was
   // implicitly privatized (declared outside the for-init).
-  if (currentOMPLoopBounds->savedInductionVarAddr.isValid())
-    replaceAddrOfLocalVar(currentOMPLoopBounds->inductionVar,
-                          currentOMPLoopBounds->savedInductionVarAddr);
-  currentOMPLoopBounds = std::nullopt;
+  if (savedAddr.isValid())
+    replaceAddrOfLocalVar(inductionVar, savedAddr);
 
   return res;
 }
@@ -613,6 +618,10 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
     mlir::Block *wsBlock = new mlir::Block();
     wsRegion.push_back(wsBlock);
 
+    // Save restore info before emitStmt, which clears currentOMPLoopBounds.
+    Address savedAddr = currentOMPLoopBounds->savedInductionVarAddr;
+    const VarDecl *inductionVar = currentOMPLoopBounds->inductionVar;
+
     {
       mlir::OpBuilder::InsertionGuard wsGuard(builder);
       builder.setInsertionPointToStart(wsBlock);
@@ -620,16 +629,16 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
       // Emit the ForStmt which creates the omp.loop_nest as the single nested
       // op inside wsloop. No deferred remapping needed — private/reduction
       // vars are already remapped at the parallel level.
+      // Note: currentOMPLoopBounds is cleared inside emitForStmt after the
+      // loop_nest is created.
       if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
         res = mlir::failure();
     }
 
     // Restore the original address mapping for the induction variable if it
     // was implicitly privatized (declared outside the for-init).
-    if (currentOMPLoopBounds->savedInductionVarAddr.isValid())
-      replaceAddrOfLocalVar(currentOMPLoopBounds->inductionVar,
-                            currentOMPLoopBounds->savedInductionVarAddr);
-    currentOMPLoopBounds = std::nullopt;
+    if (savedAddr.isValid())
+      replaceAddrOfLocalVar(inductionVar, savedAddr);
 
     // remapGuard restores original variable mappings on scope exit.
     mlir::omp::TerminatorOp::create(builder, end);

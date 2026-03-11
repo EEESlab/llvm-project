@@ -1030,6 +1030,11 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
                            /*is_volatile=*/nullptr, /*alignment=*/nullptr,
                            /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
 
+      // Clear the OpenMP loop bounds before emitting the body so that nested
+      // for-loops (e.g. `for (j = ...)` inside `#pragma omp for` over `i`) are
+      // treated as regular CIR for-loops, not as additional omp.loop_nest ops.
+      currentOMPLoopBounds = std::nullopt;
+
       // Emit the loop body.
       if (s.getBody()) {
         if (emitStmt(s.getBody(), /*useCurrentScope=*/true).failed())
