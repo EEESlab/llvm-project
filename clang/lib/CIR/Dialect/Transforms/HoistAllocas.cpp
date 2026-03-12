@@ -13,6 +13,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "clang/CIR/Dialect/Passes.h"
 #include "clang/CIR/MissingFeatures.h"
 #include "llvm/Support/TimeProfiler.h"
@@ -48,6 +49,21 @@ static void process(mlir::ModuleOp mod, cir::FuncOp func) {
       return;
     // Don't hoist allocas with dynamic alloca size.
     if (alloca.getDynAllocSize())
+      return;
+    // Don't hoist allocas out of OpenMP regions. Allocas inside
+    // omp.parallel (and similar) regions must remain local so that
+    // outlining produces per-thread storage, not shared variables.
+    bool insideOmpRegion = false;
+    for (mlir::Operation *parent = alloca->getParentOp(); parent != func;
+         parent = parent->getParentOp()) {
+      if (mlir::isa<mlir::omp::ParallelOp, mlir::omp::WsloopOp,
+                     mlir::omp::TaskOp, mlir::omp::SectionsOp,
+                     mlir::omp::SingleOp, mlir::omp::MasterOp>(parent)) {
+        insideOmpRegion = true;
+        break;
+      }
+    }
+    if (insideOmpRegion)
       return;
 
     // Hoist allocas into the entry block.
