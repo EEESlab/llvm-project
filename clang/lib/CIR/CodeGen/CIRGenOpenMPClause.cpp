@@ -75,6 +75,14 @@ public:
   // emitters. This visitor intentionally does nothing.
   void VisitOMPReductionClause(const OMPReductionClause *) {}
 
+  // Collapse clause is consumed directly by the directive emitters
+  // (via getLoopsNumber()). This visitor intentionally does nothing.
+  void VisitOMPCollapseClause(const OMPCollapseClause *) {}
+
+  // Shared clause: variables are shared by default in OpenMP, so this is a
+  // no-op — just prevents the default errorNYI from firing.
+  void VisitOMPSharedClause(const OMPSharedClause *) {}
+
   void VisitOMPScheduleClause(const OMPScheduleClause *clause) {
     if constexpr (std::is_same_v<OpTy, mlir::omp::WsloopOp>) {
       mlir::MLIRContext *ctx = builder.getContext();

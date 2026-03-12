@@ -66,18 +66,22 @@ private:
   CIRGenBuilderTy &builder;
 
   /// State used to communicate OpenMP loop bounds from `emitOMPForDirective`
-  /// to `emitForStmt`.
+  /// to `emitForStmt`. Supports multiple loops for collapse clause.
   struct LoopBounds {
-    mlir::Value lowerBound;
-    mlir::Value upperBound;
-    mlir::Value step;
-    mlir::Type inductionVarType;
-    const VarDecl *inductionVar;
-    bool inclusive;
-    /// When the induction variable is declared outside the for-init (implicit
-    /// privatization), this holds the original address so it can be restored
-    /// after the wsloop.
-    Address savedInductionVarAddr = Address::invalid();
+    llvm::SmallVector<mlir::Value, 2> lowerBounds;
+    llvm::SmallVector<mlir::Value, 2> upperBounds;
+    llvm::SmallVector<mlir::Value, 2> steps;
+    llvm::SmallVector<mlir::Type, 2> inductionVarTypes;
+    llvm::SmallVector<const VarDecl *, 2> inductionVars;
+    llvm::SmallVector<bool, 2> inclusive;
+    /// When induction variables are declared outside the for-init (implicit
+    /// privatization), these hold the original addresses so they can be
+    /// restored after the wsloop.
+    llvm::SmallVector<Address, 2> savedInductionVarAddrs;
+    /// Number of loops (1 if no collapse, N if collapse(N)).
+    unsigned numLoops = 1;
+    /// For collapsed loops, the body of the innermost loop to emit.
+    const Stmt *innermostBody = nullptr;
   };
 
   std::optional<LoopBounds> currentOMPLoopBounds;
@@ -2118,7 +2122,8 @@ public:
   /// currentOMPLoopBounds. Shared by emitOMPForDirective and
   /// emitOMPParallelForDirective.
   mlir::LogicalResult extractOMPLoopBounds(const ForStmt *forStmt,
-                                           mlir::Location loc);
+                                           mlir::Location loc,
+                                           unsigned numLoops = 1);
   mlir::LogicalResult emitOMPForSimdDirective(const OMPForSimdDirective &s);
   mlir::LogicalResult emitOMPSectionsDirective(const OMPSectionsDirective &s);
   mlir::LogicalResult emitOMPSectionDirective(const OMPSectionDirective &s);

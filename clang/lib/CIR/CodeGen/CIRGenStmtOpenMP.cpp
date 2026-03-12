@@ -141,12 +141,13 @@ static mlir::Value cirIntToStdInt(mlir::OpBuilder &builder, mlir::Location loc,
 }
 } // anonymous namespace
 
-/// Extract the ForStmt from an OpenMP loop directive's CapturedStmt, parse
-/// its init/cond/inc to produce loop bounds as CIR values, emit the loop init
-/// statement (alloca for IV), and convert bounds to standard MLIR integers.
-/// On success, populates `currentOMPLoopBounds`.
-mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
-    const ForStmt *forStmt, mlir::Location loc) {
+/// Extract bounds from a single ForStmt: parse its init/cond/inc to produce
+/// loop bounds as CIR values, emit the loop init statement (alloca for IV),
+/// convert bounds to standard MLIR integers, and append to `bounds`.
+static mlir::LogicalResult extractSingleLoopBounds(
+    CIRGenFunction &cgf, CIRGenBuilderTy &builder,
+    const ForStmt *forStmt, mlir::Location loc,
+    CIRGenFunction::LoopBounds &bounds) {
 
   mlir::Value lowerBound;
   mlir::Value upperBound;
@@ -184,14 +185,14 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
 
   // The loop variable's CIR integer type is the canonical type for all bounds.
   QualType loopVarQType = varDecl->getType();
-  auto cirType = convertType(loopVarQType);
+  auto cirType = cgf.convertType(loopVarQType);
   auto cirIntType = mlir::cast<cir::IntType>(cirType);
 
   // Extract lower bound.
   if (auto constVal = getIntLiteralValue(initExpr)) {
     lowerBound = builder.getConstInt(loc, cirIntType, *constVal);
   } else {
-    mlir::Value cirValue = emitScalarExpr(initExpr);
+    mlir::Value cirValue = cgf.emitScalarExpr(initExpr);
     lowerBound = ensureCIRIntType(builder, loc, cirValue, cirIntType);
   }
 
@@ -219,7 +220,7 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   if (auto constVal = getIntLiteralValue(boundExpr)) {
     upperBound = builder.getConstInt(loc, cirIntType, *constVal);
   } else {
-    mlir::Value cirValue = emitScalarExpr(boundExpr);
+    mlir::Value cirValue = cgf.emitScalarExpr(boundExpr);
     upperBound = ensureCIRIntType(builder, loc, cirValue, cirIntType);
   }
 
@@ -253,7 +254,7 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
       if (auto constVal = getIntLiteralValue(stepExpr)) {
         step = builder.getConstInt(loc, cirIntType, *constVal);
       } else {
-        mlir::Value cirValue = emitScalarExpr(stepExpr);
+        mlir::Value cirValue = cgf.emitScalarExpr(stepExpr);
         step = ensureCIRIntType(builder, loc, cirValue, cirIntType);
       }
     }
@@ -270,18 +271,18 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   // we create a new private alloca inside the current region and remap
   // localDeclMap to use it.
   if (const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit())) {
-    if (emitStmt(declStmt, /*useCurrentScope=*/true).failed())
+    if (cgf.emitStmt(declStmt, /*useCurrentScope=*/true).failed())
       return mlir::failure();
   } else if (forStmt->getInit()) {
     // Assignment init (e.g. `i = 0`): create a private alloca for implicit
     // privatization of the induction variable.
-    savedAddr = getAddrOfLocalVar(varDecl);
+    savedAddr = cgf.getAddrOfLocalVar(varDecl);
     Address privateAddr =
-        createMemTemp(loopVarQType, loc, varDecl->getName() + ".iv");
+        cgf.createMemTemp(loopVarQType, loc, varDecl->getName() + ".iv");
     cir::StoreOp::create(builder, loc, lowerBound, privateAddr.getPointer(),
                          /*is_volatile=*/nullptr, /*alignment=*/nullptr,
                          /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
-    replaceAddrOfLocalVar(varDecl, privateAddr);
+    cgf.replaceAddrOfLocalVar(varDecl, privateAddr);
   }
 
   // Convert CIR integer bounds to standard MLIR integers at the boundary.
@@ -291,9 +292,59 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   mlir::Value stdStep = cirIntToStdInt(builder, loc, step);
   mlir::Type loopBoundsType = stdLB.getType();
 
-  currentOMPLoopBounds =
-      LoopBounds{stdLB, stdUB, stdStep, loopBoundsType, varDecl, inclusive,
-                 savedAddr};
+  bounds.lowerBounds.push_back(stdLB);
+  bounds.upperBounds.push_back(stdUB);
+  bounds.steps.push_back(stdStep);
+  bounds.inductionVarTypes.push_back(loopBoundsType);
+  bounds.inductionVars.push_back(varDecl);
+  bounds.inclusive.push_back(inclusive);
+  bounds.savedInductionVarAddrs.push_back(savedAddr);
+  return mlir::success();
+}
+
+/// Extract loop bounds for one or more nested ForStmts (for collapse support).
+/// Uses OMPLoopBasedDirective::doForAllLoops to traverse N nested loops.
+/// On success, populates `currentOMPLoopBounds`.
+mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
+    const ForStmt *forStmt, mlir::Location loc, unsigned numLoops) {
+
+  LoopBounds bounds;
+  bounds.numLoops = numLoops;
+
+  if (numLoops == 1) {
+    // Fast path for the common non-collapsed case.
+    if (extractSingleLoopBounds(*this, builder, forStmt, loc, bounds).failed())
+      return mlir::failure();
+  } else {
+    // Use doForAllLoops to traverse N perfectly nested loops.
+    bool failed = false;
+    const ForStmt *innermostFor = nullptr;
+    OMPLoopBasedDirective::doForAllLoops(
+        const_cast<Stmt *>(cast<Stmt>(forStmt)),
+        /*TryImperfectlyNestedLoops=*/false, numLoops,
+        [&](unsigned /*idx*/, Stmt *curStmt) -> bool {
+          auto *innerFor = dyn_cast<ForStmt>(curStmt);
+          if (!innerFor) {
+            failed = true;
+            return true; // stop
+          }
+          if (extractSingleLoopBounds(*this, builder, innerFor, loc, bounds)
+                  .failed()) {
+            failed = true;
+            return true; // stop
+          }
+          innermostFor = innerFor;
+          return false; // continue
+        });
+    if (failed)
+      return mlir::failure();
+    // For collapsed loops, record the innermost loop body so emitForStmt
+    // emits it instead of the outer ForStmt's body (which contains the inner
+    // for-loops that are now part of the omp.loop_nest).
+    bounds.innermostBody = innermostFor->getBody();
+  }
+
+  currentOMPLoopBounds = std::move(bounds);
   return mlir::success();
 }
 
@@ -310,8 +361,11 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   if (!forStmt)
     return mlir::failure();
 
+  // Get the collapse count (1 if no collapse clause).
+  unsigned numLoops = s.getLoopsNumber();
+
   // Extract loop bounds, emit loop init, and populate currentOMPLoopBounds.
-  if (extractOMPLoopBounds(forStmt, begin).failed())
+  if (extractOMPLoopBounds(forStmt, begin, numLoops).failed())
     return mlir::failure();
 
   // Create wsloop and process clauses.
@@ -369,8 +423,10 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   // Save restore info before emitStmt, which clears currentOMPLoopBounds
   // inside emitForStmt to prevent nested for-loops from being treated as
   // additional omp.loop_nest ops.
-  Address savedAddr = currentOMPLoopBounds->savedInductionVarAddr;
-  const VarDecl *inductionVar = currentOMPLoopBounds->inductionVar;
+  llvm::SmallVector<Address, 2> savedAddrs =
+      currentOMPLoopBounds->savedInductionVarAddrs;
+  llvm::SmallVector<const VarDecl *, 2> inductionVars =
+      currentOMPLoopBounds->inductionVars;
 
   // Emit the ForStmt body (will create loop_nest as the single nested op).
   // Variable remapping for private/reduction vars happens inside the loop_nest
@@ -382,10 +438,12 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   currentOMPDataSharingProcessor = nullptr;
   currentOMPReductionProcessor = nullptr;
 
-  // Restore the original address mapping for the induction variable if it was
+  // Restore the original address mappings for induction variables that were
   // implicitly privatized (declared outside the for-init).
-  if (savedAddr.isValid())
-    replaceAddrOfLocalVar(inductionVar, savedAddr);
+  for (unsigned i = 0; i < inductionVars.size(); ++i) {
+    if (savedAddrs[i].isValid())
+      replaceAddrOfLocalVar(inductionVars[i], savedAddrs[i]);
+  }
 
   return res;
 }
@@ -599,8 +657,11 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
+    // Get the collapse count (1 if no collapse clause).
+    unsigned numLoops = s.getLoopsNumber();
+
     // Extract loop bounds and emit loop init inside the parallel region.
-    if (extractOMPLoopBounds(forStmt, begin).failed())
+    if (extractOMPLoopBounds(forStmt, begin, numLoops).failed())
       return mlir::failure();
 
     // --- Create inner omp.wsloop ---
@@ -619,8 +680,10 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
     wsRegion.push_back(wsBlock);
 
     // Save restore info before emitStmt, which clears currentOMPLoopBounds.
-    Address savedAddr = currentOMPLoopBounds->savedInductionVarAddr;
-    const VarDecl *inductionVar = currentOMPLoopBounds->inductionVar;
+    llvm::SmallVector<Address, 2> savedAddrs =
+        currentOMPLoopBounds->savedInductionVarAddrs;
+    llvm::SmallVector<const VarDecl *, 2> inductionVars =
+        currentOMPLoopBounds->inductionVars;
 
     {
       mlir::OpBuilder::InsertionGuard wsGuard(builder);
@@ -635,10 +698,11 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
         res = mlir::failure();
     }
 
-    // Restore the original address mapping for the induction variable if it
-    // was implicitly privatized (declared outside the for-init).
-    if (savedAddr.isValid())
-      replaceAddrOfLocalVar(inductionVar, savedAddr);
+    // Restore original address mappings for implicitly privatized IVs.
+    for (unsigned i = 0; i < inductionVars.size(); ++i) {
+      if (savedAddrs[i].isValid())
+        replaceAddrOfLocalVar(inductionVars[i], savedAddrs[i]);
+    }
 
     // remapGuard restores original variable mappings on scope exit.
     mlir::omp::TerminatorOp::create(builder, end);

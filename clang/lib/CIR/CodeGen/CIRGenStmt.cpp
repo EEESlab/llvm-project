@@ -985,21 +985,31 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
     if (isOpenMPFor) {
       mlir::OpBuilder::InsertionGuard guard(builder);
 
-      mlir::Type loopBoundsType = currentOMPLoopBounds->inductionVarType;
-      mlir::Value lb = currentOMPLoopBounds->lowerBound;
-      mlir::Value ub = currentOMPLoopBounds->upperBound;
-      mlir::Value step = currentOMPLoopBounds->step;
-      bool inclusive = currentOMPLoopBounds->inclusive;
-      const VarDecl *inductionVar = currentOMPLoopBounds->inductionVar;
+      unsigned numLoops = currentOMPLoopBounds->numLoops;
+      auto &lbs = currentOMPLoopBounds->lowerBounds;
+      auto &ubs = currentOMPLoopBounds->upperBounds;
+      auto &steps = currentOMPLoopBounds->steps;
+      auto &ivTypes = currentOMPLoopBounds->inductionVarTypes;
+      auto &ivDecls = currentOMPLoopBounds->inductionVars;
+      auto &inclusiveFlags = currentOMPLoopBounds->inclusive;
 
-      loopNestOp = loopNestOp.create(builder, scopeLoc, 1, lb, ub, step,
-                                     inclusive, nullptr);
+      // Check if any loop is inclusive (omp.loop_nest has a single inclusive
+      // flag that applies to all loops).
+      bool anyInclusive =
+          llvm::any_of(inclusiveFlags, [](bool b) { return b; });
+
+      // Pass numLoops as the collapse attribute (1 = no collapse, N = collapse).
+      loopNestOp = loopNestOp.create(builder, scopeLoc,
+                                     static_cast<int64_t>(numLoops), lbs, ubs,
+                                     steps, anyInclusive, nullptr);
 
       mlir::Region &region = loopNestOp.getRegion();
       mlir::Block *block = new mlir::Block();
       region.push_back(block);
 
-      block->addArgument(loopBoundsType, scopeLoc);
+      // Add one block argument per induction variable.
+      for (unsigned i = 0; i < numLoops; ++i)
+        block->addArgument(ivTypes[i], scopeLoc);
       builder.setInsertionPointToStart(block);
 
       // Remap private and reduction variables: cast wsloop block args
@@ -1017,18 +1027,26 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
           currentOMPReductionProcessor->hasReductionVars())
         redRemapGuard.emplace(currentOMPReductionProcessor->applyRemapping());
 
-      // Store the IV block argument into the loop variable alloca, converting
-      // back from standard integer to CIR integer type.
-      mlir::Value iv = block->getArgument(0);
-      Address inductionAddr = getAddrOfLocalVar(inductionVar);
-      mlir::Value civVal =
-          mlir::UnrealizedConversionCastOp::create(
-              builder, scopeLoc, inductionAddr.getElementType(), iv)
-              .getResult(0);
-      cir::StoreOp::create(builder, scopeLoc, civVal,
-                           inductionAddr.getPointer(),
-                           /*is_volatile=*/nullptr, /*alignment=*/nullptr,
-                           /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
+      // Store each IV block argument into its corresponding loop variable
+      // alloca, converting back from standard integer to CIR integer type.
+      for (unsigned i = 0; i < numLoops; ++i) {
+        mlir::Value iv = block->getArgument(i);
+        Address inductionAddr = getAddrOfLocalVar(ivDecls[i]);
+        mlir::Value civVal =
+            mlir::UnrealizedConversionCastOp::create(
+                builder, scopeLoc, inductionAddr.getElementType(), iv)
+                .getResult(0);
+        cir::StoreOp::create(builder, scopeLoc, civVal,
+                             inductionAddr.getPointer(),
+                             /*is_volatile=*/nullptr, /*alignment=*/nullptr,
+                             /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
+      }
+
+      // For collapsed loops, emit the innermost loop body; for non-collapsed,
+      // emit the outer ForStmt's body as before.
+      const Stmt *bodyToEmit = currentOMPLoopBounds->innermostBody
+                                   ? currentOMPLoopBounds->innermostBody
+                                   : s.getBody();
 
       // Clear the OpenMP loop bounds before emitting the body so that nested
       // for-loops (e.g. `for (j = ...)` inside `#pragma omp for` over `i`) are
@@ -1036,8 +1054,8 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
       currentOMPLoopBounds = std::nullopt;
 
       // Emit the loop body.
-      if (s.getBody()) {
-        if (emitStmt(s.getBody(), /*useCurrentScope=*/true).failed())
+      if (bodyToEmit) {
+        if (emitStmt(bodyToEmit, /*useCurrentScope=*/true).failed())
           loopRes = mlir::failure();
       }
 
