@@ -58,13 +58,6 @@ class CIRGenFunction : public CIRGenTypeCache {
 public:
   CIRGenModule &cgm;
 
-private:
-  friend class ::ScalarExprEmitter;
-  /// The builder is a helper class to create IR inside a function. The
-  /// builder is stateful, in particular it keeps an "insertion point": this
-  /// is where the next operations will be introduced.
-  CIRGenBuilderTy &builder;
-
   /// State used to communicate OpenMP loop bounds from `emitOMPForDirective`
   /// to `emitForStmt`. Supports multiple loops for collapse clause.
   struct LoopBounds {
@@ -83,6 +76,13 @@ private:
     /// For collapsed loops, the body of the innermost loop to emit.
     const Stmt *innermostBody = nullptr;
   };
+
+private:
+  friend class ::ScalarExprEmitter;
+  /// The builder is a helper class to create IR inside a function. The
+  /// builder is stateful, in particular it keeps an "insertion point": this
+  /// is where the next operations will be introduced.
+  CIRGenBuilderTy &builder;
 
   std::optional<LoopBounds> currentOMPLoopBounds;
 
