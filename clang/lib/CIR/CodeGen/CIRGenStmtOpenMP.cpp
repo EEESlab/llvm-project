@@ -6,7 +6,34 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// Emit OpenMP Stmt nodes as CIR code.
+// Emissione delle direttive OpenMP (statement) come codice CIR.
+//
+// Questo file contiene gli emitter per le direttive OpenMP supportate:
+//   - parallel:      emitOMPParallelDirective
+//   - for (wsloop):  emitOMPForDirective
+//   - parallel for:  emitOMPParallelForDirective
+//   - single:        emitOMPSingleDirective
+//   - master:        emitOMPMasterDirective
+//   - barrier:       emitOMPBarrierDirective
+//
+// Le direttive non ancora implementate emettono un errore "Not Yet
+// Implemented" (NYI) tramite errorNYI.
+//
+// Il flusso generale per ogni direttiva implementata è:
+//   1. Creare l'op MLIR del dialetto OMP (es. omp.parallel)
+//   2. Processare le clausole (emitOpenMPClauses)
+//   3. Gestire data sharing (OMPDataSharingProcessor) e riduzione
+//      (OMPReductionProcessor) se la direttiva lo richiede
+//   4. Creare la regione con block arguments e remapping
+//   5. Emettere il body della direttiva
+//   6. Terminare la regione con omp.terminator o omp.yield
+//
+// Per i loop (omp for), il flusso è più complesso:
+//   - extractOMPLoopBounds estrae i limiti dal ForStmt C/C++
+//   - emitOMPForDirective crea l'op omp.wsloop
+//   - emitForStmt (in CIRGenStmt.cpp) crea l'op omp.loop_nest
+//   - Il remapping private/reduction avviene nel body del loop_nest
+//     (non nel wsloop) per rispettare il vincolo "exactly one nested op"
 //
 //===----------------------------------------------------------------------===//
 
@@ -16,12 +43,16 @@
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinOps.h"
-#include "clang/AST/StmtOpenMP.h"
+#include "clang/AST/StmtOpenMP.h"           // Per OMPParallelDirective, OMPForDirective, ecc.
 #include "clang/CIR/Dialect/IR/CIRDialect.h"
-#include "llvm/Frontend/OpenMP/OMPConstants.h"
+#include "llvm/Frontend/OpenMP/OMPConstants.h" // Per OMPD_parallel e simili
 
 using namespace clang;
 using namespace clang::CIRGen;
+
+// =====================================================================
+// Stub NYI (direttive non ancora implementate)
+// =====================================================================
 
 mlir::LogicalResult
 CIRGenFunction::emitOMPScopeDirective(const OMPScopeDirective &s) {
@@ -33,36 +64,71 @@ CIRGenFunction::emitOMPErrorDirective(const OMPErrorDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPErrorDirective");
   return mlir::failure();
 }
+
+// =====================================================================
+// emitOMPParallelDirective — #pragma omp parallel
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp parallel { body }`.
+///
+/// Genera un'op `omp.parallel` con:
+///   - Clausole non-private (proc_bind, ecc.) tramite emitOpenMPClauses
+///   - Variabili private/firstprivate tramite OMPDataSharingProcessor
+///   - Variabili di riduzione tramite OMPReductionProcessor
+///   - Un body con remapping RAII delle variabili
+///
+/// Struttura IR risultante:
+///   omp.parallel private(@x.privatizer %x) reduction(@add_sum %sum) {
+///     // block args: %priv_x (!llvm.ptr), %red_sum (!llvm.ptr)
+///     // cast !llvm.ptr → !cir.ptr<T>
+///     // ... body emesso con variabili rimappate ...
+///     omp.terminator
+///   }
 mlir::LogicalResult
 CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
   mlir::LogicalResult res = mlir::success();
-  llvm::SmallVector<mlir::Type> retTy;
-  llvm::SmallVector<mlir::Value> operands;
-  mlir::Location begin = getLoc(s.getBeginLoc());
-  mlir::Location end = getLoc(s.getEndLoc());
+  llvm::SmallVector<mlir::Type> retTy;     // Tipo di ritorno (vuoto per parallel)
+  llvm::SmallVector<mlir::Value> operands; // Operandi iniziali (vuoti, aggiunti dopo)
+  mlir::Location begin = getLoc(s.getBeginLoc()); // Source location di inizio
+  mlir::Location end = getLoc(s.getEndLoc());     // Source location di fine
 
+  // Crea l'op omp.parallel. Gli operandi (private_vars, reduction_vars)
+  // verranno aggiunti subito dopo.
   auto parallelOp =
       mlir::omp::ParallelOp::create(builder, begin, retTy, operands);
 
-  // Process non-private clauses (e.g. proc_bind).
+  // Processa le clausole non gestite dai processori specializzati
+  // (es. proc_bind). Le clausole private/reduction sono no-op qui.
   emitOpenMPClauses(parallelOp, s.clauses());
 
-  // Data sharing: collect private vars, create omp.private ops, build operands.
+  // === Data Sharing: gestione private/firstprivate ===
+  // Crea il processore, raccoglie le variabili dalle clausole,
+  // genera le op omp.private a livello di modulo,
+  // e produce i cast !cir.ptr → !llvm.ptr come operandi.
   OMPPrivateClauseOps clauseOps;
   OMPDataSharingProcessor dsp(*this, builder, begin);
   dsp.processStep1(s.clauses(), clauseOps, parallelOp);
 
+  // Se ci sono variabili private, attacca gli operandi all'op parallel:
+  //   - private_vars: lista di puntatori !llvm.ptr alle variabili originali
+  //   - private_syms: lista di simboli (@nome.privatizer) che referenziano
+  //     le op omp.private a livello di modulo
   if (dsp.hasPrivateVars()) {
     parallelOp.getPrivateVarsMutable().append(clauseOps.privateVars);
     parallelOp.setPrivateSymsAttr(
         mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
-  // Reduction: collect reduction vars, create omp.declare_reduction ops.
+  // === Riduzione: gestione reduction ===
+  // Stessa logica della privatizzazione, ma crea op omp.declare_reduction.
   OMPReductionClauseOps redClauseOps;
   OMPReductionProcessor rdp(*this, builder, begin);
   rdp.processReductionVars(s.clauses(), redClauseOps, parallelOp);
 
+  // Se ci sono variabili di riduzione, attacca gli operandi:
+  //   - reduction_vars: lista di puntatori !llvm.ptr
+  //   - reduction_syms: lista di simboli (@add_sum, ecc.)
+  //   - reduction_byref: array di bool (false per scalari = by-value)
   if (rdp.hasReductionVars()) {
     parallelOp.getReductionVarsMutable().append(redClauseOps.reductionVars);
     parallelOp.setReductionSymsAttr(
@@ -72,78 +138,134 @@ CIRGenFunction::emitOMPParallelDirective(const OMPParallelDirective &s) {
                                       redClauseOps.reductionByref));
   }
 
+  // === Creazione della regione e emissione del body ===
   {
+    // Crea un blocco vuoto nella regione dell'op parallel.
     mlir::Block &block = parallelOp.getRegion().emplaceBlock();
+
+    // Aggiunge block arguments !llvm.ptr per le variabili private e ridotte.
+    // Questi argomenti riceveranno i puntatori alle copie thread-local
+    // dal runtime OpenMP.
     dsp.addBlockArgs(block);
     rdp.addBlockArgs(block);
 
+    // Salva e ripristina il punto di inserimento del builder.
     mlir::OpBuilder::InsertionGuard guardCase(builder);
     builder.setInsertionPointToEnd(&block);
 
-    // RAII remapping: casts block args to CIR pointers and remaps localDeclMap.
+    // Rimappa le variabili nel localDeclMap: i block arguments (!llvm.ptr)
+    // vengono castati a !cir.ptr<T> e sostituiti alle variabili originali.
+    // Le guardie RAII ripristinano le mappature originali quando escono
+    // dallo scope (alla fine del blocco {}).
     auto remapGuard = dsp.applyRemapping();
     auto redRemapGuard = rdp.applyRemapping();
 
+    // Crea uno scope lessicale per il body della regione parallela.
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
+    // Funzionalità non ancora supportate.
     if (s.hasCancel())
       getCIRGenModule().errorNYI(s.getBeginLoc(),
                                  "OpenMP Parallel with Cancel");
     if (s.getTaskReductionRefExpr())
       getCIRGenModule().errorNYI(s.getBeginLoc(),
                                  "OpenMP Parallel with Task Reduction");
+
+    // Recupera il body della direttiva parallel.
+    // Le direttive OpenMP wrappano il body in un CapturedStmt per
+    // il supporto all'outlining (anche se CIR non fa outlining qui).
     const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_parallel);
     const Stmt *bodyStmt = cs->getCapturedStmt();
+
+    // Emette il body della regione parallela. useCurrentScope=true
+    // perché il LexicalScope è già stato creato sopra.
     res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
 
-    // remapGuard restores original variable mappings on scope exit.
+    // Termina la regione con omp.terminator (obbligatorio per omp.parallel).
+    // Il terminator segnala al runtime OpenMP la fine della regione parallela.
     mlir::omp::TerminatorOp::create(builder, end);
   }
+  // Qui le guardie RAII (remapGuard, redRemapGuard) vengono distrutte,
+  // ripristinando le mappature originali nel localDeclMap.
 
   return res;
 }
 
-// Helpers for emitOMPForDirective / emitOMPParallelForDirective, which lower
-// loop directives into omp.wsloop + omp.loop_nest.
+// =====================================================================
+// Helper per l'estrazione dei limiti dei loop OpenMP
+// =====================================================================
 
 namespace {
-/// Extract integer literal value from an expression, if present.
+
+/// Estrae un valore intero letterale da un'espressione, se presente.
+/// Usato per ottimizzare i casi comuni come `i = 0` o `i < 100`
+/// dove il bound è una costante nota a compile-time.
 static std::optional<int64_t> getIntLiteralValue(const Expr *expr) {
   if (const auto *intLit = dyn_cast<IntegerLiteral>(expr->IgnoreImpCasts()))
     return intLit->getValue().getSExtValue();
   return std::nullopt;
 }
 
-/// Ensure a CIR value has the given CIR integer type, inserting an integral
-/// cast if necessary. Loads through CIR pointers first.
+/// Assicura che un valore CIR abbia il tipo intero CIR specificato.
+///
+/// Se il valore è un puntatore, prima lo carica (load).
+/// Se il tipo non corrisponde, inserisce un cast integrale.
+/// Questo è necessario perché i limiti del loop devono avere tutti
+/// lo stesso tipo (quello della variabile di induzione).
 static mlir::Value ensureCIRIntType(CIRGenBuilderTy &builder,
                                     mlir::Location loc, mlir::Value cirValue,
                                     cir::IntType targetCIRType) {
+  // Se il valore è un puntatore, caricalo prima
   if (mlir::isa<cir::PointerType>(cirValue.getType()))
     cirValue = cir::LoadOp::create(builder, loc, cirValue).getResult();
 
+  // Se il tipo è già quello desiderato, restituisci direttamente
   if (cirValue.getType() == targetCIRType)
     return cirValue;
 
+  // Altrimenti, inserisci un cast integrale (es. i64 → i32)
   return builder.createCast(loc, cir::CastKind::integral, cirValue,
                             targetCIRType);
 }
 
-/// Convert a CIR integer value to a standard MLIR integer type suitable for
-/// use as an omp.loop_nest operand.
+/// Converte un valore intero CIR in un intero standard MLIR.
+///
+/// L'op omp.loop_nest richiede operandi di tipo IntLikeType
+/// (AnyInteger | Index), non tipi CIR. Questa funzione inserisce
+/// un UnrealizedConversionCastOp per il bridge tra i due sistemi.
 static mlir::Value cirIntToStdInt(mlir::OpBuilder &builder, mlir::Location loc,
                                   mlir::Value cirValue) {
   auto cirIntType = mlir::cast<cir::IntType>(cirValue.getType());
+  // Crea il tipo intero standard con la stessa larghezza
   mlir::Type stdIntType = builder.getIntegerType(cirIntType.getWidth());
+  // Cast CIR int → standard int (sarà risolto durante il lowering)
   return mlir::UnrealizedConversionCastOp::create(builder, loc, stdIntType,
                                                   cirValue)
       .getResult(0);
 }
 } // anonymous namespace
 
-/// Extract bounds from a single ForStmt: parse its init/cond/inc to produce
-/// loop bounds as CIR values, emit the loop init statement (alloca for IV),
-/// convert bounds to standard MLIR integers, and append to `bounds`.
+/// Estrae i limiti di un singolo ForStmt C/C++ per l'uso in omp.loop_nest.
+///
+/// Analizza le 3 parti del for-loop (init/cond/inc) e produce:
+///   - lowerBound: valore iniziale della variabile di induzione
+///   - upperBound: limite superiore del loop
+///   - step: passo di incremento
+///   - inclusive: se il confronto è <= (true) o < (false)
+///
+/// Forme supportate per init:
+///   - `int i = 0`   (DeclStmt — variabile dichiarata nel for)
+///   - `i = 0`       (BinaryOperator — variabile dichiarata fuori dal for)
+///
+/// Forme supportate per cond:
+///   - `i < N`, `i <= N` (variabile a sinistra, bound a destra)
+///   - `N > i`, `N >= i` (bound a sinistra, variabile a destra)
+///
+/// Forme supportate per inc:
+///   - `i++`, `i--`         (UnaryOperator)
+///   - `i += step`          (CompoundAssignment)
+///   - `i = i + step`       (Assignment con addizione)
+///   - `i = step + i`       (Assignment con addizione commutata)
 static mlir::LogicalResult extractSingleLoopBounds(
     CIRGenFunction &cgf, CIRGenBuilderTy &builder,
     const ForStmt *forStmt, mlir::Location loc,
@@ -152,24 +274,26 @@ static mlir::LogicalResult extractSingleLoopBounds(
   mlir::Value lowerBound;
   mlir::Value upperBound;
   mlir::Value step;
-  bool inclusive = false;
-  Address savedAddr = Address::invalid();
+  bool inclusive = false;       // true se il confronto è <=, false se <
+  Address savedAddr = Address::invalid(); // Indirizzo originale per IV dichiarate fuori dal loop
 
-  // Extract loop variable type and lower bound.
-  // Two forms are supported:
-  //   1. DeclStmt:  for (int i = 0; ...)   — variable declared in the init.
-  //   2. Expr:      for (i = 0; ...)        — variable declared outside.
+  // === Estrazione della variabile di induzione e del lower bound ===
+
   const VarDecl *varDecl = nullptr;
   const Expr *initExpr = nullptr;
 
+  // Caso 1: `for (int i = 0; ...)` — la variabile è dichiarata nell'init.
+  // Il DeclStmt contiene sia la dichiarazione che l'inizializzazione.
   if (const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit())) {
     varDecl = dyn_cast<VarDecl>(declStmt->getSingleDecl());
     if (!varDecl || !varDecl->hasInit())
       return mlir::failure();
     initExpr = varDecl->getInit();
-  } else if (const auto *binOp = dyn_cast_or_null<BinaryOperator>(
+  }
+  // Caso 2: `for (i = 0; ...)` — la variabile è dichiarata altrove.
+  // L'init è un'assegnazione (BinaryOperator con =).
+  else if (const auto *binOp = dyn_cast_or_null<BinaryOperator>(
                  forStmt->getInit())) {
-    // Handle `i = 0` where i is declared outside the for loop.
     if (!binOp->isAssignmentOp())
       return mlir::failure();
     const auto *declRef =
@@ -183,12 +307,15 @@ static mlir::LogicalResult extractSingleLoopBounds(
   if (!varDecl || !initExpr)
     return mlir::failure();
 
-  // The loop variable's CIR integer type is the canonical type for all bounds.
+  // Determina il tipo intero CIR della variabile di induzione.
+  // Tutti i limiti (lower, upper, step) verranno convertiti a questo tipo.
   QualType loopVarQType = varDecl->getType();
   auto cirType = cgf.convertType(loopVarQType);
   auto cirIntType = mlir::cast<cir::IntType>(cirType);
 
-  // Extract lower bound.
+  // === Estrazione del lower bound ===
+  // Se è un letterale intero, crea direttamente una costante CIR.
+  // Altrimenti, emette il codice per valutare l'espressione.
   if (auto constVal = getIntLiteralValue(initExpr)) {
     lowerBound = builder.getConstInt(loc, cirIntType, *constVal);
   } else {
@@ -196,27 +323,30 @@ static mlir::LogicalResult extractSingleLoopBounds(
     lowerBound = ensureCIRIntType(builder, loc, cirValue, cirIntType);
   }
 
-  // Extract upper bound and comparison operator.
+  // === Estrazione dell'upper bound e dell'operatore di confronto ===
+
   const auto *condBinOp = dyn_cast_or_null<BinaryOperator>(forStmt->getCond());
   if (!condBinOp)
     return mlir::failure();
 
   BinaryOperatorKind opKind = condBinOp->getOpcode();
 
-  // Determine which side of the comparison holds the upper bound.
-  // Canonical forms: `i < ub`, `i <= ub` (var on LHS, bound on RHS)
-  //                  `ub > i`, `ub >= i` (bound on LHS, var on RHS)
+  // Determina quale lato del confronto contiene l'upper bound.
+  // Forme canoniche:
+  //   `i < N` o `i <= N` → bound è a destra, inclusive dipende dall'operatore
+  //   `N > i` o `N >= i` → bound è a sinistra (forma meno comune)
   const Expr *boundExpr = nullptr;
   if (opKind == BO_LT || opKind == BO_LE) {
     boundExpr = condBinOp->getRHS();
-    inclusive = (opKind == BO_LE);
+    inclusive = (opKind == BO_LE); // <= è inclusivo
   } else if (opKind == BO_GT || opKind == BO_GE) {
     boundExpr = condBinOp->getLHS();
-    inclusive = (opKind == BO_GE);
+    inclusive = (opKind == BO_GE); // >= è inclusivo
   } else {
-    return mlir::failure();
+    return mlir::failure(); // Operatore non supportato (es. !=, ==)
   }
 
+  // Genera il valore per l'upper bound (costante o espressione).
   if (auto constVal = getIntLiteralValue(boundExpr)) {
     upperBound = builder.getConstInt(loc, cirIntType, *constVal);
   } else {
@@ -224,24 +354,31 @@ static mlir::LogicalResult extractSingleLoopBounds(
     upperBound = ensureCIRIntType(builder, loc, cirValue, cirIntType);
   }
 
-  // Extract step.
+  // === Estrazione dello step (passo di incremento) ===
+
+  // Caso 1: operatore unario (i++ → step=1, i-- → step=-1)
   if (const auto *unaryOp =
           dyn_cast_or_null<UnaryOperator>(forStmt->getInc())) {
     int64_t val = unaryOp->isIncrementOp() ? 1 : -1;
     step = builder.getConstInt(loc, cirIntType, val);
-  } else if (const auto *binOp =
+  }
+  // Caso 2: operatore binario (i += step, i = i + step, ecc.)
+  else if (const auto *binOp =
                  dyn_cast_or_null<BinaryOperator>(forStmt->getInc())) {
     const Expr *stepExpr = nullptr;
 
     if (binOp->isCompoundAssignmentOp()) {
+      // `i += step` → lo step è il lato destro
       stepExpr = binOp->getRHS();
     } else if (binOp->isAssignmentOp()) {
-      // i = i + step or i = step + i
+      // `i = i + step` o `i = step + i`
+      // Bisogna capire quale operando è la variabile e quale lo step.
       if (auto *subBinOp =
               dyn_cast<BinaryOperator>(binOp->getRHS()->IgnoreImpCasts())) {
         const Expr *lhs = subBinOp->getLHS()->IgnoreImpCasts();
         const Expr *rhs = subBinOp->getRHS()->IgnoreImpCasts();
-        // Identify which operand is the loop variable and which is the step.
+        // Identifica quale operando è la variabile di induzione
+        // e restituisce l'altro come step.
         if (auto *lhsRef = dyn_cast<DeclRefExpr>(lhs)) {
           stepExpr = (lhsRef->getDecl() == varDecl) ? rhs : lhs;
         } else if (auto *rhsRef = dyn_cast<DeclRefExpr>(rhs)) {
@@ -250,6 +387,7 @@ static mlir::LogicalResult extractSingleLoopBounds(
       }
     }
 
+    // Genera il valore per lo step (costante o espressione).
     if (stepExpr) {
       if (auto constVal = getIntLiteralValue(stepExpr)) {
         step = builder.getConstInt(loc, cirIntType, *constVal);
@@ -260,38 +398,44 @@ static mlir::LogicalResult extractSingleLoopBounds(
     }
   }
 
-  // Default to unit step if not recognized.
+  // Step di default: 1 (se non è stato riconosciuto il pattern di incremento).
   if (!step)
     step = builder.getConstInt(loc, cirIntType, 1);
 
-  // Emit the loop init to create the alloca for the induction variable.
-  // For DeclStmt (`int i = 0`), emitting the statement creates the alloca
-  // naturally. For assignment (`i = 0`), the variable is declared outside the
-  // loop. OpenMP requires the induction variable to be implicitly private, so
-  // we create a new private alloca inside the current region and remap
-  // localDeclMap to use it.
+  // === Emissione dell'init del loop e allocazione della IV ===
+
+  // Caso DeclStmt (`int i = 0`): l'emissione crea naturalmente l'alloca.
   if (const auto *declStmt = dyn_cast_or_null<DeclStmt>(forStmt->getInit())) {
     if (cgf.emitStmt(declStmt, /*useCurrentScope=*/true).failed())
       return mlir::failure();
-  } else if (forStmt->getInit()) {
-    // Assignment init (e.g. `i = 0`): create a private alloca for implicit
-    // privatization of the induction variable.
+  }
+  // Caso assignment (`i = 0`): la variabile è dichiarata fuori dal loop.
+  // OpenMP richiede che la variabile di induzione sia implicitamente
+  // privata, quindi creiamo una nuova alloca privata dentro la regione
+  // corrente e rimappiamo localDeclMap per usarla.
+  else if (forStmt->getInit()) {
+    // Salva l'indirizzo originale per ripristinarlo dopo il loop
     savedAddr = cgf.getAddrOfLocalVar(varDecl);
+    // Crea un'alloca temporanea per la copia privata della IV
     Address privateAddr =
         cgf.createMemTemp(loopVarQType, loc, varDecl->getName() + ".iv");
+    // Inizializza la copia privata con il lower bound
     cir::StoreOp::create(builder, loc, lowerBound, privateAddr.getPointer(),
                          /*is_volatile=*/nullptr, /*alignment=*/nullptr,
                          /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
+    // Rimappa la variabile alla copia privata
     cgf.replaceAddrOfLocalVar(varDecl, privateAddr);
   }
 
-  // Convert CIR integer bounds to standard MLIR integers at the boundary.
-  // omp.loop_nest requires IntLikeType (AnyInteger | Index), not CIR types.
+  // === Conversione dei limiti da CIR int a standard MLIR int ===
+  // L'op omp.loop_nest richiede operandi di tipo IntLikeType,
+  // non tipi CIR. Inserisce UnrealizedConversionCastOp.
   mlir::Value stdLB = cirIntToStdInt(builder, loc, lowerBound);
   mlir::Value stdUB = cirIntToStdInt(builder, loc, upperBound);
   mlir::Value stdStep = cirIntToStdInt(builder, loc, step);
-  mlir::Type loopBoundsType = stdLB.getType();
+  mlir::Type loopBoundsType = stdLB.getType(); // Il tipo delle IV nel loop_nest
 
+  // Aggiunge i limiti e i metadati alla struttura LoopBounds.
   bounds.lowerBounds.push_back(stdLB);
   bounds.upperBounds.push_back(stdUB);
   bounds.steps.push_back(stdStep);
@@ -302,9 +446,18 @@ static mlir::LogicalResult extractSingleLoopBounds(
   return mlir::success();
 }
 
-/// Extract loop bounds for one or more nested ForStmts (for collapse support).
-/// Uses OMPLoopBasedDirective::doForAllLoops to traverse N nested loops.
-/// On success, populates `currentOMPLoopBounds`.
+/// Estrae i limiti di uno o più ForStmt annidati (per il supporto collapse).
+///
+/// Per il caso non-collapsed (numLoops=1), processa un singolo ForStmt.
+/// Per il caso collapsed (numLoops>1), usa
+/// OMPLoopBasedDirective::doForAllLoops per traversare N loop annidati
+/// perfettamente, estraendo i limiti di ciascuno.
+///
+/// In caso di collapse, memorizza anche il body del loop più interno
+/// (innermostBody) affinché emitForStmt emetta solo quello e non
+/// l'intero albero dei for annidati (che ora sono parte del loop_nest).
+///
+/// Popola currentOMPLoopBounds, che sarà consumato da emitForStmt.
 mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
     const ForStmt *forStmt, mlir::Location loc, unsigned numLoops) {
 
@@ -312,13 +465,17 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
   bounds.numLoops = numLoops;
 
   if (numLoops == 1) {
-    // Fast path for the common non-collapsed case.
+    // Caso semplice (non-collapsed): un solo loop.
     if (extractSingleLoopBounds(*this, builder, forStmt, loc, bounds).failed())
       return mlir::failure();
   } else {
-    // Use doForAllLoops to traverse N perfectly nested loops.
+    // Caso collapsed: traversa N loop annidati perfettamente.
     bool failed = false;
     const ForStmt *innermostFor = nullptr;
+
+    // doForAllLoops è un helper di Clang che visita i loop annidati
+    // in una direttiva OpenMP con clausola collapse(N).
+    // La callback viene chiamata per ogni livello di annidamento.
     OMPLoopBasedDirective::doForAllLoops(
         const_cast<Stmt *>(cast<Stmt>(forStmt)),
         /*TryImperfectlyNestedLoops=*/false, numLoops,
@@ -326,57 +483,84 @@ mlir::LogicalResult CIRGenFunction::extractOMPLoopBounds(
           auto *innerFor = dyn_cast<ForStmt>(curStmt);
           if (!innerFor) {
             failed = true;
-            return true; // stop
+            return true; // stop — non è un ForStmt
           }
+          // Estrae i limiti di questo livello e li aggiunge a bounds
           if (extractSingleLoopBounds(*this, builder, innerFor, loc, bounds)
                   .failed()) {
             failed = true;
-            return true; // stop
+            return true; // stop — estrazione fallita
           }
-          innermostFor = innerFor;
-          return false; // continue
+          innermostFor = innerFor; // Aggiorna il loop più interno
+          return false; // continue al prossimo livello
         });
     if (failed)
       return mlir::failure();
-    // For collapsed loops, record the innermost loop body so emitForStmt
-    // emits it instead of the outer ForStmt's body (which contains the inner
-    // for-loops that are now part of the omp.loop_nest).
+
+    // Per i loop collapsed, il body da emettere è quello del loop più
+    // interno. I loop esterni sono ora "assorbiti" nell'omp.loop_nest
+    // con operandi multi-dimensionali (lbs[], ubs[], steps[]).
     bounds.innermostBody = innermostFor->getBody();
   }
 
+  // Salva i limiti in currentOMPLoopBounds, un campo optional<LoopBounds>
+  // di CIRGenFunction. Sarà consumato da emitForStmt per creare
+  // l'omp.loop_nest.
   currentOMPLoopBounds = std::move(bounds);
   return mlir::success();
 }
 
+// =====================================================================
+// emitOMPForDirective — #pragma omp for
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp for { for(i=...) { body } }`.
+///
+/// Questa direttiva genera una struttura a 2 livelli:
+///   omp.wsloop {          ← creato qui
+///     omp.loop_nest {     ← creato da emitForStmt (in CIRGenStmt.cpp)
+///       // body del loop
+///       omp.yield
+///     }
+///   }
+///
+/// Il vincolo chiave è che omp.wsloop deve contenere esattamente una op
+/// innestata (il loop_nest). Per questo motivo, il remapping delle
+/// variabili private/ridotte viene fatto nel body del loop_nest anziché
+/// nel body del wsloop. I processori (dsp, rdp) sono salvati come
+/// "deferred" nei campi currentOMPDataSharingProcessor e
+/// currentOMPReductionProcessor di CIRGenFunction, e applicati
+/// quando emitForStmt crea il loop_nest.
 mlir::LogicalResult
 CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
 
   mlir::LogicalResult res = mlir::success();
   mlir::Location begin = getLoc(s.getBeginLoc());
 
-  // Extract the underlying canonical `for` loop from the CapturedStmt.
+  // Recupera il ForStmt C/C++ dal CapturedStmt della direttiva OpenMP.
   const CapturedStmt *capturedStmt = s.getInnermostCapturedStmt();
   const ForStmt *forStmt = dyn_cast<ForStmt>(capturedStmt->getCapturedStmt());
 
   if (!forStmt)
     return mlir::failure();
 
-  // Get the collapse count (1 if no collapse clause).
+  // Numero di loop da collassare (1 se nessuna clausola collapse).
   unsigned numLoops = s.getLoopsNumber();
 
-  // Extract loop bounds, emit loop init, and populate currentOMPLoopBounds.
+  // Estrae i limiti del loop (o dei loop per collapse), emette l'init
+  // (alloca per la IV) e popola currentOMPLoopBounds.
   if (extractOMPLoopBounds(forStmt, begin, numLoops).failed())
     return mlir::failure();
 
-  // Create wsloop and process clauses.
+  // Crea l'op omp.wsloop (worksharing loop).
   llvm::SmallVector<mlir::Type> retTy;
   llvm::SmallVector<mlir::Value> operands;
   auto wsloopOp = mlir::omp::WsloopOp::create(builder, begin, retTy, operands);
 
-  // Process non-private clauses (schedule, etc.).
+  // Processa le clausole non gestite altrove (schedule, ecc.).
   emitOpenMPClauses(wsloopOp, s.clauses());
 
-  // Data sharing: collect private vars, create omp.private ops, build operands.
+  // === Data Sharing ===
   OMPPrivateClauseOps clauseOps;
   OMPDataSharingProcessor dsp(*this, builder, begin);
   dsp.processStep1(s.clauses(), clauseOps, wsloopOp);
@@ -387,7 +571,7 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
         mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
-  // Reduction: collect reduction vars, create omp.declare_reduction ops.
+  // === Riduzione ===
   OMPReductionClauseOps redClauseOps;
   OMPReductionProcessor rdp(*this, builder, begin);
   rdp.processReductionVars(s.clauses(), redClauseOps, wsloopOp);
@@ -401,10 +585,11 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
                                       redClauseOps.reductionByref));
   }
 
-  // Create the wsloop region block. Block args for private and reduction vars
-  // are added here; the corresponding remapping casts are emitted inside the
-  // loop_nest body (in emitForStmt) to satisfy the wsloop "exactly one nested
-  // op" constraint.
+  // === Creazione del blocco della regione wsloop ===
+  // Aggiunge block arguments per private e reduction vars.
+  // NOTA: il remapping (cast e remap) non viene fatto qui ma nel
+  // body del loop_nest (via currentOMPDataSharingProcessor), perché
+  // il wsloop deve contenere esattamente una op innestata.
   mlir::Region &region = wsloopOp.getRegion();
   mlir::Block *block = new mlir::Block();
   region.push_back(block);
@@ -414,32 +599,35 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
   mlir::OpBuilder::InsertionGuard guard(builder);
   builder.setInsertionPointToStart(block);
 
-  // Store processors for deferred remapping in emitForStmt.
+  // Salva i puntatori ai processori per il remapping differito.
+  // emitForStmt li userà per applicare il remapping nel body del loop_nest.
   assert(!currentOMPDataSharingProcessor &&
          "nested wsloop privatization not supported");
   currentOMPDataSharingProcessor = &dsp;
   currentOMPReductionProcessor = &rdp;
 
-  // Save restore info before emitStmt, which clears currentOMPLoopBounds
-  // inside emitForStmt to prevent nested for-loops from being treated as
-  // additional omp.loop_nest ops.
+  // Salva le info di ripristino PRIMA di emitStmt, che cancella
+  // currentOMPLoopBounds dentro emitForStmt per evitare che i
+  // for-loop interni al body vengano trattati come ulteriori loop_nest.
   llvm::SmallVector<Address, 2> savedAddrs =
       currentOMPLoopBounds->savedInductionVarAddrs;
   llvm::SmallVector<const VarDecl *, 2> inductionVars =
       currentOMPLoopBounds->inductionVars;
 
-  // Emit the ForStmt body (will create loop_nest as the single nested op).
-  // Variable remapping for private/reduction vars happens inside the loop_nest
-  // body. Note: currentOMPLoopBounds is cleared inside emitForStmt after the
-  // loop_nest is created.
+  // Emette il ForStmt: questo crea l'omp.loop_nest come unica op
+  // innestata nel wsloop. Il remapping delle variabili private/ridotte
+  // avviene dentro il body del loop_nest.
+  // NOTA: currentOMPLoopBounds viene cancellato dentro emitForStmt
+  // dopo la creazione del loop_nest.
   if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
     res = mlir::failure();
 
+  // Reset dei puntatori ai processori dopo l'emissione.
   currentOMPDataSharingProcessor = nullptr;
   currentOMPReductionProcessor = nullptr;
 
-  // Restore the original address mappings for induction variables that were
-  // implicitly privatized (declared outside the for-init).
+  // Ripristina gli indirizzi originali per le variabili di induzione
+  // che erano state implicitamente privatizzate (dichiarate fuori dal for).
   for (unsigned i = 0; i < inductionVars.size(); ++i) {
     if (savedAddrs[i].isValid())
       replaceAddrOfLocalVar(inductionVars[i], savedAddrs[i]);
@@ -447,6 +635,10 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
 
   return res;
 }
+
+// =====================================================================
+// Stub NYI per direttive semplici
+// =====================================================================
 
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskwaitDirective(const OMPTaskwaitDirective &s) {
@@ -459,12 +651,26 @@ CIRGenFunction::emitOMPTaskyieldDirective(const OMPTaskyieldDirective &s) {
                              "OpenMP OMPTaskyieldDirective");
   return mlir::failure();
 }
+
+// =====================================================================
+// emitOMPBarrierDirective — #pragma omp barrier
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp barrier`.
+///
+/// Genera un'op `omp.barrier` che sincronizza tutti i thread del team.
+/// Nessuna clausola è supportata per barrier (asserzione di sicurezza).
 mlir::LogicalResult
 CIRGenFunction::emitOMPBarrierDirective(const OMPBarrierDirective &s) {
   mlir::omp::BarrierOp::create(builder, getLoc(s.getBeginLoc()));
   assert(s.clauses().empty() && "omp barrier doesn't support clauses");
   return mlir::success();
 }
+
+// =====================================================================
+// Stub NYI per direttive varie
+// =====================================================================
+
 mlir::LogicalResult
 CIRGenFunction::emitOMPMetaDirective(const OMPMetaDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPMetaDirective");
@@ -510,6 +716,23 @@ CIRGenFunction::emitOMPSectionDirective(const OMPSectionDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPSectionDirective");
   return mlir::failure();
 }
+
+// =====================================================================
+// emitOMPSingleDirective — #pragma omp single
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp single { body }`.
+///
+/// Genera un'op `omp.single` che esegue il body su un solo thread.
+/// Supporta le clausole:
+///   - nowait: salta la barriera implicita alla fine della regione
+///   - private/firstprivate: tramite OMPDataSharingProcessor
+///
+/// Struttura IR risultante:
+///   omp.single nowait private(@x.privatizer %x) {
+///     // ... body ...
+///     omp.terminator
+///   }
 mlir::LogicalResult
 CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
   mlir::LogicalResult res = mlir::success();
@@ -518,16 +741,19 @@ CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
 
   mlir::omp::SingleOperands clauseOps;
 
-  // Handle nowait clause.
+  // Gestione della clausola nowait.
+  // nowait elimina la barriera implicita alla fine dell'omp single.
+  // È rappresentata come un UnitAttr (presente = nowait, assente = wait).
   for (const OMPClause *c : s.clauses()) {
     if (isa<OMPNowaitClause>(c))
       clauseOps.nowait = builder.getUnitAttr();
   }
 
+  // Crea l'op omp.single con gli operandi della clausola nowait.
   auto singleOp =
       mlir::omp::SingleOp::create(builder, begin, clauseOps);
 
-  // Data sharing: collect private/firstprivate vars.
+  // === Data Sharing ===
   OMPPrivateClauseOps privClauseOps;
   OMPDataSharingProcessor dsp(*this, builder, begin);
   dsp.processStep1(s.clauses(), privClauseOps, singleOp);
@@ -538,6 +764,7 @@ CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
         mlir::ArrayAttr::get(builder.getContext(), privClauseOps.privateSyms));
   }
 
+  // === Regione e body ===
   {
     mlir::Block &block = singleOp.getRegion().emplaceBlock();
     dsp.addBlockArgs(block);
@@ -545,13 +772,16 @@ CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&block);
 
+    // Remapping RAII delle variabili private
     auto remapGuard = dsp.applyRemapping();
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
+    // Recupera il body, srotolando il CapturedStmt se presente.
     const Stmt *bodyStmt = s.getAssociatedStmt();
     if (const auto *cs = dyn_cast<CapturedStmt>(bodyStmt))
       bodyStmt = cs->getCapturedStmt();
+
     res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
 
     mlir::omp::TerminatorOp::create(builder, end);
@@ -559,24 +789,43 @@ CIRGenFunction::emitOMPSingleDirective(const OMPSingleDirective &s) {
 
   return res;
 }
+
+// =====================================================================
+// emitOMPMasterDirective — #pragma omp master
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp master { body }`.
+///
+/// Genera un'op `omp.master` che esegue il body solo sul thread master
+/// (thread ID 0). Non supporta clausole.
+///
+/// Struttura IR risultante:
+///   omp.master {
+///     // ... body ...
+///     omp.terminator
+///   }
 mlir::LogicalResult
 CIRGenFunction::emitOMPMasterDirective(const OMPMasterDirective &s) {
   mlir::LogicalResult res = mlir::success();
   mlir::Location begin = getLoc(s.getBeginLoc());
   mlir::Location end = getLoc(s.getEndLoc());
 
+  // Crea l'op omp.master (nessun operando — nessuna clausola supportata).
   auto masterOp = mlir::omp::MasterOp::create(builder, begin);
 
   {
+    // Crea un blocco vuoto nella regione del master.
     mlir::Block &block = masterOp.getRegion().emplaceBlock();
     mlir::OpBuilder::InsertionGuard guard(builder);
     builder.setInsertionPointToEnd(&block);
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
+    // Recupera e srotola il body dal CapturedStmt.
     const Stmt *bodyStmt = s.getAssociatedStmt();
     if (const auto *cs = dyn_cast<CapturedStmt>(bodyStmt))
       bodyStmt = cs->getCapturedStmt();
+
     res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
 
     mlir::omp::TerminatorOp::create(builder, end);
@@ -584,24 +833,58 @@ CIRGenFunction::emitOMPMasterDirective(const OMPMasterDirective &s) {
 
   return res;
 }
+
+// =====================================================================
+// Stub NYI
+// =====================================================================
+
 mlir::LogicalResult
 CIRGenFunction::emitOMPCriticalDirective(const OMPCriticalDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPCriticalDirective");
   return mlir::failure();
 }
+
+// =====================================================================
+// emitOMPParallelForDirective — #pragma omp parallel for
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp parallel for { for(i=...) { body } }`.
+///
+/// Questa è una direttiva composta che fonde parallel e for in una
+/// singola operazione del runtime. Genera una struttura a 3 livelli:
+///
+///   omp.parallel private(...) reduction(...) {
+///     // block args per private/reduction vars
+///     // remapping RAII delle variabili
+///     omp.wsloop schedule(...) {
+///       omp.loop_nest lb ub step {
+///         // IV store + body
+///         omp.yield
+///       }
+///     }
+///     omp.terminator
+///   }
+///
+/// Le variabili private e di riduzione vanno sull'op parallel (non
+/// sul wsloop), perché la privatizzazione avviene a livello di team,
+/// non a livello di iterazione.
+///
+/// Le clausole schedule vanno sul wsloop (non sul parallel), perché
+/// controllano la distribuzione delle iterazioni tra i thread.
 mlir::LogicalResult
 CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
   mlir::LogicalResult res = mlir::success();
   mlir::Location begin = getLoc(s.getBeginLoc());
   mlir::Location end = getLoc(s.getEndLoc());
 
-  // Extract the underlying canonical `for` loop from the CapturedStmt.
+  // Recupera il ForStmt dal CapturedStmt.
   const CapturedStmt *capturedStmt = s.getInnermostCapturedStmt();
   const ForStmt *forStmt = dyn_cast<ForStmt>(capturedStmt->getCapturedStmt());
 
   if (!forStmt)
     return mlir::failure();
 
+  // Funzionalità non ancora supportate.
   if (s.hasCancel())
     getCIRGenModule().errorNYI(s.getBeginLoc(),
                                "OpenMP ParallelFor with Cancel");
@@ -609,16 +892,16 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
     getCIRGenModule().errorNYI(s.getBeginLoc(),
                                "OpenMP ParallelFor with Task Reduction");
 
-  // --- Create outer omp.parallel ---
+  // === Op parallel esterna ===
   llvm::SmallVector<mlir::Type> retTy;
   llvm::SmallVector<mlir::Value> operands;
   auto parallelOp =
       mlir::omp::ParallelOp::create(builder, begin, retTy, operands);
 
-  // Process parallel-level clauses (proc_bind, num_threads, etc.).
+  // Processa clausole a livello parallel (proc_bind, num_threads, ecc.).
   emitOpenMPClauses(parallelOp, s.clauses());
 
-  // Data sharing: private vars go on the parallel op.
+  // Data sharing: le variabili private vanno sull'op parallel.
   OMPPrivateClauseOps clauseOps;
   OMPDataSharingProcessor dsp(*this, builder, begin);
   dsp.processStep1(s.clauses(), clauseOps, parallelOp);
@@ -629,7 +912,7 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
         mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
   }
 
-  // Reduction: reduction vars go on the parallel op.
+  // Riduzione: anche le variabili di riduzione vanno sull'op parallel.
   OMPReductionClauseOps redClauseOps;
   OMPReductionProcessor rdp(*this, builder, begin);
   rdp.processReductionVars(s.clauses(), redClauseOps, parallelOp);
@@ -643,6 +926,7 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
                                       redClauseOps.reductionByref));
   }
 
+  // === Regione parallel con remapping e wsloop innestato ===
   {
     mlir::Block &block = parallelOp.getRegion().emplaceBlock();
     dsp.addBlockArgs(block);
@@ -651,35 +935,40 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
     mlir::OpBuilder::InsertionGuard guardCase(builder);
     builder.setInsertionPointToEnd(&block);
 
-    // RAII remapping: cast block args to CIR pointers and remap localDeclMap.
+    // Remapping RAII: cast block args → CIR pointers e remap localDeclMap.
+    // Questo avviene a livello parallel (non wsloop), perché le variabili
+    // sono private a livello di thread, non di iterazione.
     auto remapGuard = dsp.applyRemapping();
     auto redRemapGuard = rdp.applyRemapping();
 
     LexicalScope ls{*this, begin, builder.getInsertionBlock()};
 
-    // Get the collapse count (1 if no collapse clause).
+    // Numero di loop da collassare.
     unsigned numLoops = s.getLoopsNumber();
 
-    // Extract loop bounds and emit loop init inside the parallel region.
+    // Estrae i limiti del loop DENTRO la regione parallel (importante:
+    // le alloca per le IV devono essere dentro la regione parallel
+    // per essere thread-private).
     if (extractOMPLoopBounds(forStmt, begin, numLoops).failed())
       return mlir::failure();
 
-    // --- Create inner omp.wsloop ---
+    // === Op wsloop interna ===
     llvm::SmallVector<mlir::Type> wsRetTy;
     llvm::SmallVector<mlir::Value> wsOperands;
     auto wsloopOp =
         mlir::omp::WsloopOp::create(builder, begin, wsRetTy, wsOperands);
 
-    // Process wsloop-level clauses (schedule, etc.).
+    // Processa clausole a livello wsloop (schedule, ecc.).
+    // Le clausole proc_bind e private sono no-op qui (già gestite sopra).
     emitOpenMPClauses(wsloopOp, s.clauses());
 
-    // Create the wsloop region block (no private/reduction block args — those
-    // are on the parallel op).
+    // Crea il blocco del wsloop. NON ha block arguments per private/reduction
+    // perché quelli sono gestiti a livello parallel.
     mlir::Region &wsRegion = wsloopOp.getRegion();
     mlir::Block *wsBlock = new mlir::Block();
     wsRegion.push_back(wsBlock);
 
-    // Save restore info before emitStmt, which clears currentOMPLoopBounds.
+    // Salva le info di ripristino per le IV implicitamente privatizzate.
     llvm::SmallVector<Address, 2> savedAddrs =
         currentOMPLoopBounds->savedInductionVarAddrs;
     llvm::SmallVector<const VarDecl *, 2> inductionVars =
@@ -689,27 +978,32 @@ CIRGenFunction::emitOMPParallelForDirective(const OMPParallelForDirective &s) {
       mlir::OpBuilder::InsertionGuard wsGuard(builder);
       builder.setInsertionPointToStart(wsBlock);
 
-      // Emit the ForStmt which creates the omp.loop_nest as the single nested
-      // op inside wsloop. No deferred remapping needed — private/reduction
-      // vars are already remapped at the parallel level.
-      // Note: currentOMPLoopBounds is cleared inside emitForStmt after the
-      // loop_nest is created.
+      // Emette il ForStmt che crea l'omp.loop_nest come unica op
+      // innestata nel wsloop. Non serve remapping differito qui:
+      // le variabili private/ridotte sono già rimappate a livello parallel.
+      // NOTA: currentOMPLoopBounds viene cancellato dentro emitForStmt.
       if (emitStmt(forStmt, /*useCurrentScope=*/false).failed())
         res = mlir::failure();
     }
 
-    // Restore original address mappings for implicitly privatized IVs.
+    // Ripristina gli indirizzi originali delle IV implicitamente privatizzate.
     for (unsigned i = 0; i < inductionVars.size(); ++i) {
       if (savedAddrs[i].isValid())
         replaceAddrOfLocalVar(inductionVars[i], savedAddrs[i]);
     }
 
-    // remapGuard restores original variable mappings on scope exit.
+    // Termina la regione parallel con omp.terminator.
     mlir::omp::TerminatorOp::create(builder, end);
   }
+  // Qui remapGuard e redRemapGuard vengono distrutte → ripristino mappature.
 
   return res;
 }
+
+// =====================================================================
+// Stub NYI per tutte le altre direttive OpenMP
+// =====================================================================
+
 mlir::LogicalResult CIRGenFunction::emitOMPParallelForSimdDirective(
     const OMPParallelForSimdDirective &s) {
   getCIRGenModule().errorNYI(s.getSourceRange(),

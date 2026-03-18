@@ -944,79 +944,110 @@ CIRGenFunction::emitCXXForRangeStmt(const CXXForRangeStmt &s,
   return mlir::success();
 }
 
-/// Emit a `for` statement as either a CIR `cir.for` or, when inside an
-/// OpenMP `#pragma omp for`, an `omp.loop_nest` within the wsloop created
-/// by emitOMPForDirective.
+/// Emette un'istruzione `for` C/C++ come:
+///   - Un `cir.for` CIR nel caso normale (non-OpenMP), oppure
+///   - Un `omp.loop_nest` dentro il `omp.wsloop` creato da
+///     emitOMPForDirective quando siamo in contesto OpenMP.
+///
+/// La distinzione avviene tramite il campo `currentOMPLoopBounds`:
+/// se ha un valore, siamo in un contesto `#pragma omp for` e dobbiamo
+/// generare un loop_nest; altrimenti, generiamo un for CIR standard.
+///
+/// Per il path OpenMP, la struttura risultante è:
+///   omp.wsloop {                 ← creato da emitOMPForDirective
+///     omp.loop_nest lb ub step { ← creato QUI
+///       // cast !llvm.ptr → !cir.ptr per private/reduction vars
+///       // store IV block arg nell'alloca
+///       // body del loop
+///       omp.yield
+///     }
+///   }
 
 mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
 
-  // CIR for-loop operation (used in the non-OpenMP case).
+  // Op del for-loop CIR (usata solo nel caso non-OpenMP).
   cir::ForOp forOp;
 
-  // OpenMP loop nest operation (used when inside `omp.wsloop`).
+  // Op loop_nest OpenMP (usata solo dentro un omp.wsloop).
   mlir::omp::LoopNestOp loopNestOp;
 
   auto scopeLoc = getLoc(s.getSourceRange());
+  // Controlla se siamo dentro un `#pragma omp for` guardando se
+  // currentOMPLoopBounds è stato popolato da emitOMPForDirective.
   bool isOpenMPFor = currentOMPLoopBounds.has_value();
 
-  // This lambda emits either an OpenMP `omp.loop_nest` or a regular CIR
-  // `cir.for`, depending on whether we are inside an OpenMP for directive.
+  // Lambda che emette il contenuto del loop (sia per CIR che per OpenMP).
+  // I due path (OpenMP vs CIR) sono separati da un if/else.
   // TODO: pass in an array of attributes.
   auto forStmtBuilder = [&]() -> mlir::LogicalResult {
     mlir::LogicalResult loopRes = mlir::success();
 
-    // For OpenMP loops, init is emitted by emitOMPForDirective before the
-    // wsloop so that the alloca lives outside the loop region.
+    // Per i loop OpenMP, l'init (alloca della IV) è già stato emesso
+    // da emitOMPForDirective/extractSingleLoopBounds PRIMA del wsloop,
+    // affinché l'alloca viva fuori dalla regione del loop.
     if (!isOpenMPFor) {
-      // Evaluate the first part before the loop.
+      // Caso CIR normale: emette l'init del for (es. `int i = 0`).
       if (s.getInit())
         if (emitStmt(s.getInit(), /*useCurrentScope=*/true).failed())
           return mlir::failure();
     }
 
     assert(!cir::MissingFeatures::loopInfoStack());
-    // In the classic codegen, if there are any cleanups between here and the
-    // loop-exit scope, a block is created to stage the loop exit. We probably
-    // already do the right thing because of ScopeOp, but we need more testing
-    // to be sure we handle all cases.
     assert(!cir::MissingFeatures::requiresCleanups());
 
-    // OpenMP path: emit omp.loop_nest using bounds from emitOMPForDirective.
+    // ============================================================
+    // PATH OpenMP: emissione dell'omp.loop_nest
+    // ============================================================
     if (isOpenMPFor) {
       mlir::OpBuilder::InsertionGuard guard(builder);
 
+      // Recupera i limiti pre-calcolati da extractOMPLoopBounds.
       unsigned numLoops = currentOMPLoopBounds->numLoops;
-      auto &lbs = currentOMPLoopBounds->lowerBounds;
-      auto &ubs = currentOMPLoopBounds->upperBounds;
-      auto &steps = currentOMPLoopBounds->steps;
-      auto &ivTypes = currentOMPLoopBounds->inductionVarTypes;
-      auto &ivDecls = currentOMPLoopBounds->inductionVars;
-      auto &inclusiveFlags = currentOMPLoopBounds->inclusive;
+      auto &lbs = currentOMPLoopBounds->lowerBounds;   // Lower bounds (std int)
+      auto &ubs = currentOMPLoopBounds->upperBounds;   // Upper bounds (std int)
+      auto &steps = currentOMPLoopBounds->steps;       // Steps (std int)
+      auto &ivTypes = currentOMPLoopBounds->inductionVarTypes; // Tipi delle IV
+      auto &ivDecls = currentOMPLoopBounds->inductionVars;     // VarDecl delle IV
+      auto &inclusiveFlags = currentOMPLoopBounds->inclusive;  // Flags <= vs <
 
-      // Check if any loop is inclusive (omp.loop_nest has a single inclusive
-      // flag that applies to all loops).
+      // L'op omp.loop_nest ha un singolo flag `inclusive` che si applica
+      // a tutti i loop. Se almeno uno è inclusivo (<=), il flag è true.
       bool anyInclusive =
           llvm::any_of(inclusiveFlags, [](bool b) { return b; });
 
-      // Pass numLoops as the collapse attribute (1 = no collapse, N = collapse).
+      // Crea l'op omp.loop_nest con i limiti multi-dimensionali.
+      // numLoops è usato come attributo collapse (1 = no collapse).
       loopNestOp = loopNestOp.create(builder, scopeLoc,
                                      static_cast<int64_t>(numLoops), lbs, ubs,
                                      steps, anyInclusive, nullptr);
 
+      // Crea un blocco nella regione del loop_nest.
       mlir::Region &region = loopNestOp.getRegion();
       mlir::Block *block = new mlir::Block();
       region.push_back(block);
 
-      // Add one block argument per induction variable.
+      // Aggiunge un block argument per ogni variabile di induzione.
+      // Il tipo è intero standard MLIR (es. i32, i64), non CIR.
       for (unsigned i = 0; i < numLoops; ++i)
         block->addArgument(ivTypes[i], scopeLoc);
       builder.setInsertionPointToStart(block);
 
-      // Remap private and reduction variables: cast wsloop block args
-      // (!llvm.ptr) to CIR pointers. These casts are placed here (loop_nest
-      // body) rather than in the wsloop body, which must contain exactly one
-      // nested op (loop_nest). The RAII guards restore original mappings when
-      // they go out of scope.
+      // === Remapping differito delle variabili private e ridotte ===
+      //
+      // PERCHÉ QUI E NON NEL WSLOOP?
+      // L'op omp.wsloop ha il vincolo di contenere esattamente una op
+      // innestata (il loop_nest). Se inserissimo i cast di remapping
+      // nel body del wsloop, avremmo più di una op e violeremmo il
+      // vincolo. Quindi i cast vengono inseriti nel body del loop_nest.
+      //
+      // I processori (currentOMPDataSharingProcessor e
+      // currentOMPReductionProcessor) sono stati salvati da
+      // emitOMPForDirective e contengono le entry con i block arguments
+      // del wsloop. applyRemapping() genera i cast !llvm.ptr → !cir.ptr
+      // e rimappa il localDeclMap.
+      //
+      // Le guardie RAII (std::optional per poterle creare condizionalmente)
+      // ripristinano le mappature originali quando escono dallo scope.
       std::optional<OMPDataSharingProcessor::RemapGuard> remapGuard;
       if (currentOMPDataSharingProcessor &&
           currentOMPDataSharingProcessor->hasPrivateVars())
@@ -1027,42 +1058,56 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
           currentOMPReductionProcessor->hasReductionVars())
         redRemapGuard.emplace(currentOMPReductionProcessor->applyRemapping());
 
-      // Store each IV block argument into its corresponding loop variable
-      // alloca, converting back from standard integer to CIR integer type.
+      // === Store delle IV nei loro alloca ===
+      //
+      // I block arguments del loop_nest sono valori intero standard
+      // (es. i32). Devono essere convertiti in tipo CIR e salvati
+      // nell'alloca della variabile di induzione, affinché il body
+      // del loop possa accedervi normalmente tramite load/store.
       for (unsigned i = 0; i < numLoops; ++i) {
-        mlir::Value iv = block->getArgument(i);
-        Address inductionAddr = getAddrOfLocalVar(ivDecls[i]);
+        mlir::Value iv = block->getArgument(i); // Valore IV (std int)
+        Address inductionAddr = getAddrOfLocalVar(ivDecls[i]); // Alloca della IV
+        // Cast std int → CIR int (es. i32 → !cir.int<s,32>)
         mlir::Value civVal =
             mlir::UnrealizedConversionCastOp::create(
                 builder, scopeLoc, inductionAddr.getElementType(), iv)
                 .getResult(0);
+        // Store il valore CIR nell'alloca della IV
         cir::StoreOp::create(builder, scopeLoc, civVal,
                              inductionAddr.getPointer(),
                              /*is_volatile=*/nullptr, /*alignment=*/nullptr,
                              /*sync_scope=*/nullptr, /*mem_order=*/nullptr);
       }
 
-      // For collapsed loops, emit the innermost loop body; for non-collapsed,
-      // emit the outer ForStmt's body as before.
+      // Per i loop collapsed, emette il body del loop più interno.
+      // Per i loop non-collapsed, emette il body del ForStmt originale.
       const Stmt *bodyToEmit = currentOMPLoopBounds->innermostBody
                                    ? currentOMPLoopBounds->innermostBody
                                    : s.getBody();
 
-      // Clear the OpenMP loop bounds before emitting the body so that nested
-      // for-loops (e.g. `for (j = ...)` inside `#pragma omp for` over `i`) are
-      // treated as regular CIR for-loops, not as additional omp.loop_nest ops.
+      // IMPORTANTE: cancella currentOMPLoopBounds PRIMA di emettere il body.
+      // Se il body contiene dei for-loop annidati (es. `for (j = ...)`
+      // dentro un `#pragma omp for` su `i`), questi devono essere trattati
+      // come normali for CIR, non come ulteriori omp.loop_nest.
       currentOMPLoopBounds = std::nullopt;
 
-      // Emit the loop body.
+      // Emette il body del loop.
       if (bodyToEmit) {
         if (emitStmt(bodyToEmit, /*useCurrentScope=*/true).failed())
           loopRes = mlir::failure();
       }
 
-      // remapGuard restores original variable mappings on scope exit.
+      // Qui le guardie RAII (remapGuard, redRemapGuard) vengono distrutte,
+      // ripristinando le mappature originali nel localDeclMap.
 
+      // Termina la regione loop_nest con omp.yield.
       mlir::omp::YieldOp::create(builder, getLoc(s.getEndLoc()));
+
+    // ============================================================
+    // PATH CIR normale: emissione del cir.for
+    // ============================================================
     } else {
+      // Crea un cir.for con 3 lambda: condizione, body, step.
       forOp = builder.createFor(
           getLoc(s.getSourceRange()),
           /*condBuilder=*/
@@ -1072,29 +1117,28 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
                 !cir::MissingFeatures::emitCondLikelihoodViaExpectIntrinsic());
             mlir::Value condVal;
             if (s.getCond()) {
-              // If the for statement has a condition scope,
-              // emit the local variable declaration.
               if (s.getConditionVariable())
                 emitDecl(*s.getConditionVariable());
-              // C99 6.8.5p2/p4: The first substatement is executed if the
-              // expression compares unequal to 0. The condition must be a
-              // scalar type.
+              // C99 6.8.5p2/p4: il body viene eseguito se la condizione
+              // è diversa da 0. La condizione deve essere un tipo scalare.
               condVal = evaluateExprAsBool(s.getCond());
             } else {
+              // Nessuna condizione → loop infinito (for(;;))
               condVal = cir::ConstantOp::create(b, loc, builder.getTrueAttr());
             }
             builder.createCondition(condVal);
           },
           /*bodyBuilder=*/
           [&](mlir::OpBuilder &b, mlir::Location loc) {
-            // The scope of the for loop body is nested within the scope of the
-            // for loop's init-statement and condition.
+            // Lo scope del body è annidato dentro lo scope dell'init
+            // e della condizione del for.
             if (emitStmt(s.getBody(), /*useCurrentScope=*/false).failed())
               loopRes = mlir::failure();
             emitStopPoint(&s);
           },
           /*stepBuilder=*/
           [&](mlir::OpBuilder &b, mlir::Location loc) {
+            // Emette lo step (es. i++, i += 2)
             if (s.getInc())
               if (emitStmt(s.getInc(), /*useCurrentScope=*/true).failed())
                 loopRes = mlir::failure();
@@ -1107,8 +1151,11 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   auto res = mlir::success();
 
   if (isOpenMPFor) {
+    // Path OpenMP: nessuno scope CIR (il loop_nest è dentro il wsloop).
     res = forStmtBuilder();
   } else {
+    // Path CIR: wrappa il for in un cir.scope per il corretto scoping
+    // delle variabili dichiarate nell'init (es. `int i = 0`).
     cir::ScopeOp::create(builder, scopeLoc, /*scopeBuilder=*/
                          [&](mlir::OpBuilder &b, mlir::Location loc) {
                            LexicalScope lexScope{*this, loc,
@@ -1120,8 +1167,8 @@ mlir::LogicalResult CIRGenFunction::emitForStmt(const ForStmt &s) {
   if (res.failed())
     return res;
 
-  // Only regular CIR loops require explicit termination.
-  // OpenMP wsloop/loop_nest regions terminate via omp.yield.
+  // Solo i loop CIR standard richiedono la terminazione esplicita del body.
+  // I loop OpenMP (wsloop/loop_nest) terminano via omp.yield.
   if (!isOpenMPFor) {
     terminateBody(builder, forOp.getBody(), getLoc(s.getEndLoc()));
   }

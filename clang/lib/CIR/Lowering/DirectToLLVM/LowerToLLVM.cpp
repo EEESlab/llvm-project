@@ -17,11 +17,13 @@
 #include <optional>
 
 #include "mlir/Conversion/LLVMCommon/TypeConverter.h"
+#include "mlir/Conversion/OpenMPToLLVM/ConvertOpenMPToLLVM.h"
 #include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
 #include "mlir/Dialect/DLTI/DLTI.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/LLVMIR/LLVMTypes.h"
+#include "mlir/Dialect/OpenMP/OpenMPDialect.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinDialect.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -3562,6 +3564,15 @@ void ConvertCIRToLLVMPass::runOnOperation() {
   target.addLegalDialect<mlir::LLVM::LLVMDialect>();
   target.addIllegalDialect<mlir::BuiltinDialect, cir::CIRDialect,
                            mlir::func::FuncDialect>();
+
+  // OpenMP ops stay as OMP dialect but their regions may contain CIR ops that
+  // get converted. We need to convert block argument types inside OMP regions
+  // (e.g., merge blocks from flattened ternary/if ops may have CIR-typed
+  // arguments). The OMP-to-LLVM conversion patterns handle this by recreating
+  // OMP ops with converted operand/region types.
+  mlir::configureOpenMPToLLVMConversionLegality(target, converter);
+  target.addLegalDialect<mlir::omp::OpenMPDialect>();
+  mlir::populateOpenMPToLLVMConversionPatterns(converter, patterns);
 
   // Allow unrealized conversion casts to survive CIR-to-LLVM conversion.
   // They are resolved by the reconcile-unrealized-casts pass that runs after.
