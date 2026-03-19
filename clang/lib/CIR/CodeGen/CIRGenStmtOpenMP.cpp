@@ -331,20 +331,20 @@ static mlir::LogicalResult extractSingleLoopBounds(
 
   BinaryOperatorKind opKind = condBinOp->getOpcode();
 
-  // Determina quale lato del confronto contiene l'upper bound.
-  // Forme canoniche:
-  //   `i < N` o `i <= N` → bound è a destra, inclusive dipende dall'operatore
-  //   `N > i` o `N >= i` → bound è a sinistra (forma meno comune)
+  // Determina quale lato del confronto contiene il bound.
+  // La variabile del loop può apparire su entrambi i lati:
+  //   `i < ub`, `i <= ub`, `i > lb`, `i >= lb` (variabile a sinistra)
+  //   `ub > i`, `ub >= i`, `lb < i`, `lb <= i` (variabile a destra)
   const Expr *boundExpr = nullptr;
-  if (opKind == BO_LT || opKind == BO_LE) {
-    boundExpr = condBinOp->getRHS();
-    inclusive = (opKind == BO_LE); // <= è inclusivo
-  } else if (opKind == BO_GT || opKind == BO_GE) {
-    boundExpr = condBinOp->getLHS();
-    inclusive = (opKind == BO_GE); // >= è inclusivo
-  } else {
+  if (opKind != BO_LT && opKind != BO_LE && opKind != BO_GT &&
+      opKind != BO_GE)
     return mlir::failure(); // Operatore non supportato (es. !=, ==)
-  }
+
+  const auto *lhsRef = dyn_cast<DeclRefExpr>(
+      condBinOp->getLHS()->IgnoreParenImpCasts());
+  bool varOnLHS = lhsRef && lhsRef->getDecl() == varDecl;
+  boundExpr = varOnLHS ? condBinOp->getRHS() : condBinOp->getLHS();
+  inclusive = (opKind == BO_LE || opKind == BO_GE);
 
   // Genera il valore per l'upper bound (costante o espressione).
   if (auto constVal = getIntLiteralValue(boundExpr)) {
