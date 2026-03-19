@@ -203,19 +203,20 @@ static mlir::LogicalResult extractSingleLoopBounds(
 
   BinaryOperatorKind opKind = condBinOp->getOpcode();
 
-  // Determine which side of the comparison holds the upper bound.
-  // Canonical forms: `i < ub`, `i <= ub` (var on LHS, bound on RHS)
-  //                  `ub > i`, `ub >= i` (bound on LHS, var on RHS)
+  // Determine which side of the comparison holds the bound.
+  // The loop variable may appear on either side:
+  //   `i < ub`, `i <= ub`, `i > lb`, `i >= lb` (var on LHS, bound on RHS)
+  //   `ub > i`, `ub >= i`, `lb < i`, `lb <= i` (bound on LHS, var on RHS)
   const Expr *boundExpr = nullptr;
-  if (opKind == BO_LT || opKind == BO_LE) {
-    boundExpr = condBinOp->getRHS();
-    inclusive = (opKind == BO_LE);
-  } else if (opKind == BO_GT || opKind == BO_GE) {
-    boundExpr = condBinOp->getLHS();
-    inclusive = (opKind == BO_GE);
-  } else {
+  if (opKind != BO_LT && opKind != BO_LE && opKind != BO_GT &&
+      opKind != BO_GE)
     return mlir::failure();
-  }
+
+  const auto *lhsRef = dyn_cast<DeclRefExpr>(
+      condBinOp->getLHS()->IgnoreParenImpCasts());
+  bool varOnLHS = lhsRef && lhsRef->getDecl() == varDecl;
+  boundExpr = varOnLHS ? condBinOp->getRHS() : condBinOp->getLHS();
+  inclusive = (opKind == BO_LE || opKind == BO_GE);
 
   if (auto constVal = getIntLiteralValue(boundExpr)) {
     upperBound = builder.getConstInt(loc, cirIntType, *constVal);
