@@ -63,6 +63,10 @@ int main(int argc, char **argv) {
     return mlir::createGotoSolverPass();
   });
 
+  ::mlir::registerPass([]() -> std::unique_ptr<::mlir::Pass> {
+  return mlir::createReconcileUnrealizedCastsPass();
+  });
+
   mlir::registerTransformsPasses();
 
   return mlir::asMainReturnCode(MlirOptMain(
