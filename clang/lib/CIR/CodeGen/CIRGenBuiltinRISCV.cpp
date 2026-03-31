@@ -186,6 +186,25 @@ CIRGenFunction::emitRISCVBuiltinExpr(unsigned builtinID, const CallExpr *e) {
   case RISCV::BI__builtin_riscv_cv_alu_subuRN:
   // XCVelw
   case RISCV::BI__builtin_riscv_cv_elw_elw:
+  // XCVmac
+  case RISCV::BI__builtin_riscv_cv_mac_mac:
+  case RISCV::BI__builtin_riscv_cv_mac_msu:
+  case RISCV::BI__builtin_riscv_cv_mac_muluN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_muluRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_macuN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_macuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsRN:
   // XAndesPerf
   case RISCV::BI__builtin_riscv_nds_ffb_32:
   case RISCV::BI__builtin_riscv_nds_ffb_64:
