@@ -1433,6 +1433,15 @@ Value *CodeGenFunction::EmitRISCVBuiltinExpr(unsigned BuiltinID,
     ID = Intrinsic::riscv_cv_alu_subuRN;
     break;
 
+  // XCVelw
+  case RISCV::BI__builtin_riscv_cv_elw_elw: {
+    // cv.elw rd, imm(rs1) — load word with event wait
+    // Emit as a volatile load from the memory-mapped address
+    // The builtin takes a pointer; emit as intrinsic call
+    ID = Intrinsic::riscv_cv_elw_elw;
+    break;
+  }
+
   // XAndesPerf
   case RISCV::BI__builtin_riscv_nds_ffb_32:
   case RISCV::BI__builtin_riscv_nds_ffb_64:

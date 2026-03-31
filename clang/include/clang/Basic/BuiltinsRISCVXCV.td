@@ -39,3 +39,10 @@ def alu_subuN  : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int, unsig
 def alu_subRN  : RISCVXCVBuiltin<"int(int, int, unsigned int)", "xcvalu">;
 def alu_subuRN : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int)", "xcvalu">;
 } // Attributes = [NoThrow, Const]
+
+//===----------------------------------------------------------------------===//
+// XCVelw extension.
+//===----------------------------------------------------------------------===//
+let Attributes = [NoThrow] in {
+def elw_elw : RISCVXCVBuiltin<"int(int *)", "xcvelw">;
+} // Attributes = [NoThrow]
