@@ -140,6 +140,7 @@ set(riscv_files
   riscv_corev_alu.h
   riscv_corev_elw.h
   riscv_corev_mac.h
+  riscv_corev_simd.h
   riscv_mips.h
   riscv_nds.h
   riscv_packed_simd.h
