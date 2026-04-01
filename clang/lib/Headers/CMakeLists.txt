@@ -138,6 +138,7 @@ set(riscv_files
   # Vendor headers
   andes_vector.h
   riscv_corev_alu.h
+  riscv_corev_bitmanip.h
   riscv_corev_elw.h
   riscv_corev_mac.h
   riscv_corev_simd.h

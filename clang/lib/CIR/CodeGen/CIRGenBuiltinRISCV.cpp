@@ -184,6 +184,14 @@ CIRGenFunction::emitRISCVBuiltinExpr(unsigned builtinID, const CallExpr *e) {
   case RISCV::BI__builtin_riscv_cv_alu_subRN:
   case RISCV::BI__builtin_riscv_cv_alu_subuN:
   case RISCV::BI__builtin_riscv_cv_alu_subuRN:
+  // XCVbitmanip
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extract:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extractu:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bclr:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bset:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_insert:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_clb:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bitrev:
   // XCVelw
   case RISCV::BI__builtin_riscv_cv_elw_elw:
   // XCVmac

@@ -653,6 +653,11 @@ bool SemaRISCV::CheckBuiltinFunctionCall(const TargetInfo &TI,
     break;
   }
 
+  // XCVbitmanip — bitrev: IS2 (radix) in [0,3], IS3 (pts) in [0,31]
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bitrev:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3) ||
+           SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 31);
+
   // XCVmac — shift amount in [0, 31]
   case RISCV::BI__builtin_riscv_cv_mac_muluN:
   case RISCV::BI__builtin_riscv_cv_mac_mulhhuN:

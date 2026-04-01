@@ -1433,6 +1433,29 @@ Value *CodeGenFunction::EmitRISCVBuiltinExpr(unsigned BuiltinID,
     ID = Intrinsic::riscv_cv_alu_subuRN;
     break;
 
+  // XCVbitmanip
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extract:
+    ID = Intrinsic::riscv_cv_bitmanip_extract;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extractu:
+    ID = Intrinsic::riscv_cv_bitmanip_extractu;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bclr:
+    ID = Intrinsic::riscv_cv_bitmanip_bclr;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bset:
+    ID = Intrinsic::riscv_cv_bitmanip_bset;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_insert:
+    ID = Intrinsic::riscv_cv_bitmanip_insert;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_clb:
+    ID = Intrinsic::riscv_cv_bitmanip_clb;
+    break;
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bitrev:
+    ID = Intrinsic::riscv_cv_bitmanip_bitrev;
+    break;
+
   // XCVelw
   case RISCV::BI__builtin_riscv_cv_elw_elw: {
     // cv.elw rd, imm(rs1) — load word with event wait

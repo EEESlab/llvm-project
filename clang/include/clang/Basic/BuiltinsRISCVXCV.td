@@ -41,6 +41,19 @@ def alu_subuRN : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int, unsig
 } // Attributes = [NoThrow, Const]
 
 //===----------------------------------------------------------------------===//
+// XCVbitmanip extension.
+//===----------------------------------------------------------------------===//
+let Attributes = [NoThrow, Const] in {
+def bitmanip_extract  : RISCVXCVBuiltin<"int(unsigned int, unsigned int)", "xcvbitmanip">;
+def bitmanip_extractu : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int)", "xcvbitmanip">;
+def bitmanip_bclr     : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int)", "xcvbitmanip">;
+def bitmanip_bset     : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int)", "xcvbitmanip">;
+def bitmanip_insert   : RISCVXCVBuiltin<"unsigned int(unsigned int, unsigned int, unsigned int)", "xcvbitmanip">;
+def bitmanip_clb      : RISCVXCVBuiltin<"unsigned int(unsigned int)", "xcvbitmanip">;
+def bitmanip_bitrev   : RISCVXCVBuiltin<"unsigned int(unsigned int, _Constant unsigned int, _Constant unsigned int)", "xcvbitmanip">;
+} // Attributes = [NoThrow, Const]
+
+//===----------------------------------------------------------------------===//
 // XCVelw extension.
 //===----------------------------------------------------------------------===//
 let Attributes = [NoThrow] in {
