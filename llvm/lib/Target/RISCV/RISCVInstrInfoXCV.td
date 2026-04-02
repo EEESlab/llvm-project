@@ -1137,3 +1137,17 @@ let Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1 in {
             (CV_SUBROTMJ_DIV8 GPR:$rs1, GPR:$rs2)>;
 
 } // Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1
+
+//===----------------------------------------------------------------------===//
+// XCVmac Generic SelectionDAG patterns
+//===----------------------------------------------------------------------===//
+
+let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
+  // acc + (a * b) → cv.mac
+  def : Pat<(i32 (add GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+            (CV_MAC GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // acc - (a * b) → cv.msu
+  def : Pat<(i32 (sub GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+            (CV_MSU GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+}
