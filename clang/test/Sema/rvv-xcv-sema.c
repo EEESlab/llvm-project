@@ -55,3 +55,11 @@ void test_simd_subrotmj_range(uint32_t a, uint32_t b) {
   (void)__builtin_riscv_cv_simd_subrotmj(a, b, 3);  // OK
   (void)__builtin_riscv_cv_simd_subrotmj(a, b, 4);  // expected-error {{argument value 4 is outside the valid range [0, 3]}}
 }
+
+// ===== XCVbitmanip — bitrev ranges =====
+
+void test_bitmanip_bitrev_range(uint32_t a) {
+  (void)__builtin_riscv_cv_bitmanip_bitrev(a, 3, 31);  // OK: max values
+  (void)__builtin_riscv_cv_bitmanip_bitrev(a, 4, 0);   // expected-error {{argument value 4 is outside the valid range [0, 3]}}
+  (void)__builtin_riscv_cv_bitmanip_bitrev(a, 0, 32);  // expected-error {{argument value 32 is outside the valid range [0, 31]}}
+}
