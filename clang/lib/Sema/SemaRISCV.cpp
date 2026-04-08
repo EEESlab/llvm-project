@@ -652,6 +652,61 @@ bool SemaRISCV::CheckBuiltinFunctionCall(const TargetInfo &TI,
 
     break;
   }
+
+  // XCVbitmanip — bitrev: IS2 (radix) in [0,3], IS3 (pts) in [0,31]
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bitrev:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3) ||
+           SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 31);
+
+  // XCVmac — shift amount in [0, 31]
+  case RISCV::BI__builtin_riscv_cv_mac_muluN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_muluRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsRN:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 31);
+  case RISCV::BI__builtin_riscv_cv_mac_macuN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_macuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsRN:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 3, 0, 31);
+
+  // XCVsimd — extract/insert index
+  case RISCV::BI__builtin_riscv_cv_simd_extract_h:
+  case RISCV::BI__builtin_riscv_cv_simd_extractu_h:
+  return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 1); // [0,1] for 2 halfwords
+  case RISCV::BI__builtin_riscv_cv_simd_insert_h:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 1); // [0,1] for 2 halfwords
+  case RISCV::BI__builtin_riscv_cv_simd_extract_b:
+  case RISCV::BI__builtin_riscv_cv_simd_extractu_b:
+  return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3); // [0,3] for 4 bytes
+  case RISCV::BI__builtin_riscv_cv_simd_insert_b:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 3); // [0,3] for 4 bytes
+  // Note: insert has index at arg 2 not 1
+  // Shuffle SCI — 6-bit immediate [0, 63]
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_h:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3);
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_b:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 255); // 8-bit, split by codegen
+
+  // add_h / sub_h div code [0,3] (0=no shift, 1=/2, 2=/4, 3=/8)
+  case RISCV::BI__builtin_riscv_cv_simd_add_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sub_h:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 3);
+
+  // complex mul div code [0,3]
+  case RISCV::BI__builtin_riscv_cv_simd_cplxmul_r:
+  case RISCV::BI__builtin_riscv_cv_simd_cplxmul_i:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 3, 0, 3);
+  case RISCV::BI__builtin_riscv_cv_simd_subrotmj:
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 3);
   }
 
   auto CheckVSetVL = [&](unsigned SEWOffset, unsigned LMULOffset) -> bool {

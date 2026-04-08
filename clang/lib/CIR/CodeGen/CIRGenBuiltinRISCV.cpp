@@ -184,6 +184,191 @@ CIRGenFunction::emitRISCVBuiltinExpr(unsigned builtinID, const CallExpr *e) {
   case RISCV::BI__builtin_riscv_cv_alu_subRN:
   case RISCV::BI__builtin_riscv_cv_alu_subuN:
   case RISCV::BI__builtin_riscv_cv_alu_subuRN:
+  // XCVbitmanip
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extract:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_extractu:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bclr:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bset:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_insert:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_clb:
+  case RISCV::BI__builtin_riscv_cv_bitmanip_bitrev:
+  // XCVelw
+  case RISCV::BI__builtin_riscv_cv_elw_elw:
+  // XCVmac
+  case RISCV::BI__builtin_riscv_cv_mac_mac:
+  case RISCV::BI__builtin_riscv_cv_mac_msu:
+  case RISCV::BI__builtin_riscv_cv_mac_muluN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_muluRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_mulhhsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_macuN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsN:
+  case RISCV::BI__builtin_riscv_cv_mac_macuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhuRN:
+  case RISCV::BI__builtin_riscv_cv_mac_macsRN:
+  case RISCV::BI__builtin_riscv_cv_mac_machhsRN:
+  // XCVsimd - ADD/SUB
+  case RISCV::BI__builtin_riscv_cv_simd_add_h:
+  case RISCV::BI__builtin_riscv_cv_simd_add_b:
+  case RISCV::BI__builtin_riscv_cv_simd_add_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_add_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sub_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sub_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sub_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sub_sc_b:
+  // XCVsimd - AVG (signed)
+  case RISCV::BI__builtin_riscv_cv_simd_avg_h:
+  case RISCV::BI__builtin_riscv_cv_simd_avg_b:
+  case RISCV::BI__builtin_riscv_cv_simd_avg_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_avg_sc_b:
+  // XCVsimd - AVGU (unsigned)
+  case RISCV::BI__builtin_riscv_cv_simd_avgu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_avgu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_avgu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_avgu_sc_b:
+  // XCVsimd - MIN / MINU / MAX / MAXU
+  case RISCV::BI__builtin_riscv_cv_simd_min_h:
+  case RISCV::BI__builtin_riscv_cv_simd_min_b:
+  case RISCV::BI__builtin_riscv_cv_simd_min_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_min_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_minu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_minu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_minu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_minu_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_max_h:
+  case RISCV::BI__builtin_riscv_cv_simd_max_b:
+  case RISCV::BI__builtin_riscv_cv_simd_max_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_max_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_maxu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_maxu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_maxu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_maxu_sc_b:
+  // XCVsimd - SRL / SRA / SLL (shifts — immediate versions take uimm6)
+  case RISCV::BI__builtin_riscv_cv_simd_srl_h:
+  case RISCV::BI__builtin_riscv_cv_simd_srl_b:
+  case RISCV::BI__builtin_riscv_cv_simd_srl_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_srl_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sra_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sra_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sra_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sra_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sll_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sll_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sll_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sll_sc_b:
+  // XCVsimd - OR / XOR / AND
+  case RISCV::BI__builtin_riscv_cv_simd_or_h:
+  case RISCV::BI__builtin_riscv_cv_simd_or_b:
+  case RISCV::BI__builtin_riscv_cv_simd_or_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_or_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_xor_h:
+  case RISCV::BI__builtin_riscv_cv_simd_xor_b:
+  case RISCV::BI__builtin_riscv_cv_simd_xor_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_xor_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_and_h:
+  case RISCV::BI__builtin_riscv_cv_simd_and_b:
+  case RISCV::BI__builtin_riscv_cv_simd_and_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_and_sc_b:
+  // XCVsimd - ABS
+  case RISCV::BI__builtin_riscv_cv_simd_abs_h:
+  case RISCV::BI__builtin_riscv_cv_simd_abs_b:
+  // XCVsimd - DOT PRODUCTS
+  case RISCV::BI__builtin_riscv_cv_simd_dotup_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotup_b:
+  case RISCV::BI__builtin_riscv_cv_simd_dotup_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotup_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_dotusp_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotusp_b:
+  case RISCV::BI__builtin_riscv_cv_simd_dotusp_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotusp_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_dotsp_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotsp_b:
+  case RISCV::BI__builtin_riscv_cv_simd_dotsp_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_dotsp_sc_b:
+  // XCVsimd - SDOT (accumulating dot products — rd is both input and output)
+  case RISCV::BI__builtin_riscv_cv_simd_sdotup_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotup_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotup_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotup_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotusp_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotusp_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotusp_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotusp_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotsp_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotsp_b:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotsp_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_sdotsp_sc_b:
+  // XCVsimd - EXTRACT / INSERT
+  case RISCV::BI__builtin_riscv_cv_simd_extract_h:
+  case RISCV::BI__builtin_riscv_cv_simd_extract_b:
+  case RISCV::BI__builtin_riscv_cv_simd_extractu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_extractu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_insert_h:
+  case RISCV::BI__builtin_riscv_cv_simd_insert_b:
+  // XCVsimd - SHUFFLE / SHUFFLE2
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_h:
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_b:
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_h:
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_b:
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle2_h:
+  case RISCV::BI__builtin_riscv_cv_simd_shuffle2_b:
+  // XCVsimd - PACK
+  case RISCV::BI__builtin_riscv_cv_simd_packhi_h:
+  case RISCV::BI__builtin_riscv_cv_simd_packlo_h:
+  case RISCV::BI__builtin_riscv_cv_simd_packhi_b:
+  case RISCV::BI__builtin_riscv_cv_simd_packlo_b:
+  // XCVsimd - COMPARE (result is mask in packed reg)
+  case RISCV::BI__builtin_riscv_cv_simd_cmpeq_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpeq_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpeq_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpeq_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpne_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpne_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpne_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpne_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgt_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgt_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgt_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgt_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpge_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpge_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpge_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpge_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmplt_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmplt_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmplt_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmplt_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmple_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmple_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmple_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmple_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgtu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgtu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgtu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgtu_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgeu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgeu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgeu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpgeu_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpltu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpltu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpltu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpltu_sc_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpleu_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpleu_b:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpleu_sc_h:
+  case RISCV::BI__builtin_riscv_cv_simd_cmpleu_sc_b:
+  // XCVsimd - COMPLEX
+  case RISCV::BI__builtin_riscv_cv_simd_cplxmul_r:
+  case RISCV::BI__builtin_riscv_cv_simd_cplxmul_i:
+  case RISCV::BI__builtin_riscv_cv_simd_cplxconj:
+  case RISCV::BI__builtin_riscv_cv_simd_subrotmj:
   // XAndesPerf
   case RISCV::BI__builtin_riscv_nds_ffb_32:
   case RISCV::BI__builtin_riscv_nds_ffb_64:
