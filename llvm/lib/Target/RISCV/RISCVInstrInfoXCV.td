@@ -29,6 +29,7 @@ def CVrr : Operand<i32>,
 
 def cv_tuimm2 : TImmLeaf<XLenVT, [{return isUInt<2>(Imm);}]>;
 def cv_tuimm5 : TImmLeaf<XLenVT, [{return isUInt<5>(Imm);}]>;
+def cv_uimm5  : ImmLeaf<XLenVT, [{return isUInt<5>(Imm);}]>;
 def cv_uimm10 : ImmLeaf<XLenVT, [{return isUInt<10>(Imm);}]>;
 
 def CV_LO5: SDNodeXForm<imm, [{
@@ -850,3 +851,346 @@ let Predicates = [HasVendorXCVmac] in {
   def : PatCoreVMacGprGprGprUimm5<"macsRN", "MACSRN">;
   def : PatCoreVMacGprGprGprUimm5<"machhsRN", "MACHHSRN">;
 }
+
+//===----------------------------------------------------------------------===//
+// XCVsimd pseudo-instruction for cv.shuffle.sci.b
+//===----------------------------------------------------------------------===//
+// The hardware encodes the 8-bit shuffle immediate by splitting it across
+// four different opcodes: cv.shufflei0/1/2/3.sci.b, where bits [7:6] select
+// the opcode and bits [5:0] are the payload. This pseudo absorbs the full
+// 8-bit immediate; RISCVExpandPseudoInsts splits it into the correct real
+// instruction.
+
+let Predicates = [HasVendorXCVsimd, IsRV32] in {
+  let hasSideEffects = 0, mayLoad = 0, mayStore = 0, isCodeGenOnly = 1 in
+  def CV_SHUFFLE_SCI_B_PSEUDO
+    : Pseudo<(outs GPR:$rd), (ins GPR:$rs1, i32imm:$imm), []>;
+}
+
+//===----------------------------------------------------------------------===//
+// Pattern helper multiclasses for XCVsimd
+//===----------------------------------------------------------------------===//
+
+// Binary signed: RR variants + SCI with simm6
+multiclass PatCoreVSimdSigned<string iname> {
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_h"),
+                  !cast<RVInst>("CV_" # NAME # "_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_b"),
+                  !cast<RVInst>("CV_" # NAME # "_B")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_B")>;
+  // SCI: when the scalar fits in simm6, prefer the immediate instruction
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, simm6:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_H") GPR:$rs1, simm6:$imm)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, simm6:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_B") GPR:$rs1, simm6:$imm)>;
+}
+
+// Binary unsigned: RR variants + SCI with uimm6
+multiclass PatCoreVSimdUnsigned<string iname> {
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_h"),
+                  !cast<RVInst>("CV_" # NAME # "_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_b"),
+                  !cast<RVInst>("CV_" # NAME # "_B")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_B")>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, uimm6:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_H") GPR:$rs1, uimm6:$imm)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, uimm6:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_B") GPR:$rs1, uimm6:$imm)>;
+}
+
+// Shift: RR variants + SCI with uimm4 for .h, uimm3 for .b
+multiclass PatCoreVSimdShift<string iname> {
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_h"),
+                  !cast<RVInst>("CV_" # NAME # "_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_b"),
+                  !cast<RVInst>("CV_" # NAME # "_B")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_H")>;
+  def : PatGprGpr<!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b"),
+                  !cast<RVInst>("CV_" # NAME # "_SC_B")>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, uimm4:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_H") GPR:$rs1, uimm4:$imm)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, uimm3:$imm),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_B") GPR:$rs1, uimm3:$imm)>;
+}
+
+// Accumulating signed (Wb): intrinsic(rs1, rs2, acc) → instr(acc, rs1, rs2)
+// + SCI variant where rs2 (arg1) is simm6
+multiclass PatCoreVSimdSignedWb<string iname> {
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_h")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_H") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_b")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_B") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SC_H") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SC_B") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, simm6:$imm, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_H") GPR:$rd, GPR:$rs1, simm6:$imm)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, simm6:$imm, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_B") GPR:$rd, GPR:$rs1, simm6:$imm)>;
+}
+
+// Accumulating unsigned (Wb): same but SCI uses uimm6
+multiclass PatCoreVSimdUnsignedWb<string iname> {
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_h")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_H") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_b")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_B") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SC_H") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SC_B") GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_h")
+               GPR:$rs1, uimm6:$imm, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_H") GPR:$rd, GPR:$rs1, uimm6:$imm)>;
+  def : Pat<(!cast<Intrinsic>("int_riscv_cv_simd_" # iname # "_sc_b")
+               GPR:$rs1, uimm6:$imm, GPR:$rd),
+            (!cast<RVInst>("CV_" # NAME # "_SCI_B") GPR:$rd, GPR:$rs1, uimm6:$imm)>;
+}
+
+//===----------------------------------------------------------------------===//
+// XCVsimd intrinsic-to-instruction patterns
+//===----------------------------------------------------------------------===//
+
+let Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1 in {
+
+  // ---- ADD / SUB ----
+  // add_h / sub_h use a divcode immediate to select between 4 instructions
+  // intrinsic: (rs1, rs2, divcode_IMM) -> rd
+  def : Pat<(int_riscv_cv_simd_add_h GPR:$rs1, GPR:$rs2, 0),
+            (CV_ADD_H GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_add_h GPR:$rs1, GPR:$rs2, 1),
+            (CV_ADD_DIV2 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_add_h GPR:$rs1, GPR:$rs2, 2),
+            (CV_ADD_DIV4 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_add_h GPR:$rs1, GPR:$rs2, 3),
+            (CV_ADD_DIV8 GPR:$rs1, GPR:$rs2)>;
+
+  def : PatGprGpr<int_riscv_cv_simd_add_b,    CV_ADD_B>;
+  def : PatGprGpr<int_riscv_cv_simd_add_sc_h,  CV_ADD_SC_H>;
+  def : PatGprGpr<int_riscv_cv_simd_add_sc_b,  CV_ADD_SC_B>;
+  def : Pat<(int_riscv_cv_simd_add_sc_h GPR:$rs1, simm6:$imm),
+            (CV_ADD_SCI_H GPR:$rs1, simm6:$imm)>;
+  def : Pat<(int_riscv_cv_simd_add_sc_b GPR:$rs1, simm6:$imm),
+            (CV_ADD_SCI_B GPR:$rs1, simm6:$imm)>;
+
+  def : Pat<(int_riscv_cv_simd_sub_h GPR:$rs1, GPR:$rs2, 0),
+            (CV_SUB_H GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_sub_h GPR:$rs1, GPR:$rs2, 1),
+            (CV_SUB_DIV2 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_sub_h GPR:$rs1, GPR:$rs2, 2),
+            (CV_SUB_DIV4 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_sub_h GPR:$rs1, GPR:$rs2, 3),
+            (CV_SUB_DIV8 GPR:$rs1, GPR:$rs2)>;
+
+  def : PatGprGpr<int_riscv_cv_simd_sub_b,    CV_SUB_B>;
+  def : PatGprGpr<int_riscv_cv_simd_sub_sc_h,  CV_SUB_SC_H>;
+  def : PatGprGpr<int_riscv_cv_simd_sub_sc_b,  CV_SUB_SC_B>;
+  def : Pat<(int_riscv_cv_simd_sub_sc_h GPR:$rs1, simm6:$imm),
+            (CV_SUB_SCI_H GPR:$rs1, simm6:$imm)>;
+  def : Pat<(int_riscv_cv_simd_sub_sc_b GPR:$rs1, simm6:$imm),
+            (CV_SUB_SCI_B GPR:$rs1, simm6:$imm)>;
+
+  // ---- AVG / AVGU / MIN / MINU / MAX / MAXU ----
+  defm AVG  : PatCoreVSimdSigned<"avg">;
+  defm AVGU : PatCoreVSimdUnsigned<"avgu">;
+  defm MIN  : PatCoreVSimdSigned<"min">;
+  defm MINU : PatCoreVSimdUnsigned<"minu">;
+  defm MAX  : PatCoreVSimdSigned<"max">;
+  defm MAXU : PatCoreVSimdUnsigned<"maxu">;
+
+  // ---- SRL / SRA / SLL ----
+  defm SRL : PatCoreVSimdShift<"srl">;
+  defm SRA : PatCoreVSimdShift<"sra">;
+  defm SLL : PatCoreVSimdShift<"sll">;
+
+  // ---- OR / XOR / AND ----
+  defm OR  : PatCoreVSimdSigned<"or">;
+  defm XOR : PatCoreVSimdSigned<"xor">;
+  defm AND : PatCoreVSimdSigned<"and">;
+
+  // ---- ABS ----
+  def : PatGpr<int_riscv_cv_simd_abs_h, CV_ABS_H>;
+  def : PatGpr<int_riscv_cv_simd_abs_b, CV_ABS_B>;
+
+  // ---- DOT PRODUCTS (non-accumulating) ----
+  defm DOTUP  : PatCoreVSimdUnsigned<"dotup">;
+  defm DOTUSP : PatCoreVSimdSigned<"dotusp">;
+  defm DOTSP  : PatCoreVSimdSigned<"dotsp">;
+
+  // ---- SDOT (accumulating) ----
+  defm SDOTUP  : PatCoreVSimdUnsignedWb<"sdotup">;
+  defm SDOTUSP : PatCoreVSimdSignedWb<"sdotusp">;
+  defm SDOTSP  : PatCoreVSimdSignedWb<"sdotsp">;
+
+  // ---- EXTRACT / EXTRACTU ----
+  // intrinsic: (rs1, IMM) -> rd
+  def : Pat<(int_riscv_cv_simd_extract_h  GPR:$rs1, timm:$imm),
+            (CV_EXTRACT_H  GPR:$rs1, timm:$imm)>;
+  def : Pat<(int_riscv_cv_simd_extract_b  GPR:$rs1, timm:$imm),
+            (CV_EXTRACT_B  GPR:$rs1, timm:$imm)>;
+  def : Pat<(int_riscv_cv_simd_extractu_h GPR:$rs1, timm:$imm),
+            (CV_EXTRACTU_H GPR:$rs1, timm:$imm)>;
+  def : Pat<(int_riscv_cv_simd_extractu_b GPR:$rs1, timm:$imm),
+            (CV_EXTRACTU_B GPR:$rs1, timm:$imm)>;
+
+  // ---- INSERT ----
+  // intrinsic: (rd_in, rs1, IMM) -> rd_out
+  def : Pat<(int_riscv_cv_simd_insert_h GPR:$rd, GPR:$rs1, timm:$imm),
+            (CV_INSERT_H GPR:$rd, GPR:$rs1, timm:$imm)>;
+  def : Pat<(int_riscv_cv_simd_insert_b GPR:$rd, GPR:$rs1, timm:$imm),
+            (CV_INSERT_B GPR:$rd, GPR:$rs1, timm:$imm)>;
+
+  // ---- SHUFFLE ----
+  def : PatGprGpr<int_riscv_cv_simd_shuffle_h, CV_SHUFFLE_H>;
+  def : PatGprGpr<int_riscv_cv_simd_shuffle_b, CV_SHUFFLE_B>;
+  def : Pat<(int_riscv_cv_simd_shuffle_sci_h GPR:$rs1, timm:$imm),
+            (CV_SHUFFLE_SCI_H GPR:$rs1, timm:$imm)>;
+  // shuffle_sci_b goes through the pseudo (8-bit imm split by expander)
+  def : Pat<(int_riscv_cv_simd_shuffle_sci_b GPR:$rs1, timm:$imm),
+            (CV_SHUFFLE_SCI_B_PSEUDO GPR:$rs1, timm:$imm)>;
+
+  // ---- SHUFFLE2: (rs1, rs2, rd_in) -> rd_out ----
+  def : Pat<(int_riscv_cv_simd_shuffle2_h GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (CV_SHUFFLE2_H GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_shuffle2_b GPR:$rs1, GPR:$rs2, GPR:$rd),
+            (CV_SHUFFLE2_B GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // ---- PACK ----
+  // pack (packlo_h) and pack.h (packhi_h) are plain binary: (rs1, rs2) -> rd
+  def : PatGprGpr<int_riscv_cv_simd_packlo_h, CV_PACK>;
+  def : PatGprGpr<int_riscv_cv_simd_packhi_h, CV_PACK_H>;
+  // packhi.b / packlo.b are accumulating: (rd_in, rs1, rs2) -> rd_out
+  def : Pat<(int_riscv_cv_simd_packhi_b GPR:$rd, GPR:$rs1, GPR:$rs2),
+            (CV_PACKHI_B GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_packlo_b GPR:$rd, GPR:$rs1, GPR:$rs2),
+            (CV_PACKLO_B GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // ---- COMPARE (signed) ----
+  defm CMPEQ : PatCoreVSimdSigned<"cmpeq">;
+  defm CMPNE : PatCoreVSimdSigned<"cmpne">;
+  defm CMPGT : PatCoreVSimdSigned<"cmpgt">;
+  defm CMPGE : PatCoreVSimdSigned<"cmpge">;
+  defm CMPLT : PatCoreVSimdSigned<"cmplt">;
+  defm CMPLE : PatCoreVSimdSigned<"cmple">;
+
+  // ---- COMPARE (unsigned) ----
+  defm CMPGTU : PatCoreVSimdUnsigned<"cmpgtu">;
+  defm CMPGEU : PatCoreVSimdUnsigned<"cmpgeu">;
+  defm CMPLTU : PatCoreVSimdUnsigned<"cmpltu">;
+  defm CMPLEU : PatCoreVSimdUnsigned<"cmpleu">;
+
+  // ---- COMPLEX: cplxmul ----
+  // intrinsic: (rs1, rs2, rd_in, divcode_IMM) -> rd_out
+  def : Pat<(int_riscv_cv_simd_cplxmul_r GPR:$rs1, GPR:$rs2, GPR:$rd, 0),
+            (CV_CPLXMUL_R GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_r GPR:$rs1, GPR:$rs2, GPR:$rd, 1),
+            (CV_CPLXMUL_R_DIV2 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_r GPR:$rs1, GPR:$rs2, GPR:$rd, 2),
+            (CV_CPLXMUL_R_DIV4 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_r GPR:$rs1, GPR:$rs2, GPR:$rd, 3),
+            (CV_CPLXMUL_R_DIV8 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  def : Pat<(int_riscv_cv_simd_cplxmul_i GPR:$rs1, GPR:$rs2, GPR:$rd, 0),
+            (CV_CPLXMUL_I GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_i GPR:$rs1, GPR:$rs2, GPR:$rd, 1),
+            (CV_CPLXMUL_I_DIV2 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_i GPR:$rs1, GPR:$rs2, GPR:$rd, 2),
+            (CV_CPLXMUL_I_DIV4 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_cplxmul_i GPR:$rs1, GPR:$rs2, GPR:$rd, 3),
+            (CV_CPLXMUL_I_DIV8 GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // ---- COMPLEX: cplxconj ----
+  def : PatGpr<int_riscv_cv_simd_cplxconj, CV_CPLXCONJ>;
+
+  // ---- COMPLEX: subrotmj ----
+  // intrinsic: (rs1, rs2, divcode_IMM) -> rd
+  def : Pat<(int_riscv_cv_simd_subrotmj GPR:$rs1, GPR:$rs2, 0),
+            (CV_SUBROTMJ GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_subrotmj GPR:$rs1, GPR:$rs2, 1),
+            (CV_SUBROTMJ_DIV2 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_subrotmj GPR:$rs1, GPR:$rs2, 2),
+            (CV_SUBROTMJ_DIV4 GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(int_riscv_cv_simd_subrotmj GPR:$rs1, GPR:$rs2, 3),
+            (CV_SUBROTMJ_DIV8 GPR:$rs1, GPR:$rs2)>;
+
+} // Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1
+
+//===----------------------------------------------------------------------===//
+// XCVmac Generic SelectionDAG patterns
+//===----------------------------------------------------------------------===//
+
+let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
+  // acc + (a * b) → cv.mac
+  def : Pat<(i32 (add GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+            (CV_MAC GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // acc - (a * b) → cv.msu
+  def : Pat<(i32 (sub GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+            (CV_MSU GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+}
+
+//===----------------------------------------------------------------------===//
+// XCValu Generic SelectionDAG patterns
+//===----------------------------------------------------------------------===//
+
+// ---- Immediate shift variants (RRI format) ----
+let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 3 in {
+  // cv.addn rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >>> imm5 (arithmetic)
+  def : Pat<(i32 (sra (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+            (CV_ADDN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
+
+  // cv.addun rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >> imm5 (logical)
+  def : Pat<(i32 (srl (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+            (CV_ADDUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
+
+  // cv.subn rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >>> imm5 (arithmetic)
+  def : Pat<(i32 (sra (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+            (CV_SUBN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
+
+  // cv.subun rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >> imm5 (logical)
+  def : Pat<(i32 (srl (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+            (CV_SUBUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
+} // Predicates = [HasVendorXCValu, IsRV32]
+
+// ---- Register shift variants (NR format, tied rd) ----
+let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 2 in {
+  // cv.addnr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (arithmetic)
+  def : Pat<(i32 (sra (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+            (CV_ADDNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // cv.addunr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (logical)
+  def : Pat<(i32 (srl (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+            (CV_ADDUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // cv.subnr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (arithmetic)
+  def : Pat<(i32 (sra (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+            (CV_SUBNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+
+  // cv.subunr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (logical)
+  def : Pat<(i32 (srl (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+            (CV_SUBUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
+} // Predicates = [HasVendorXCValu, IsRV32]

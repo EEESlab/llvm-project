@@ -60,6 +60,8 @@ private:
                            MachineBasicBlock::iterator MBBI);
   bool expandPseudoReadVLENBViaVSETVLIX0(MachineBasicBlock &MBB,
                                          MachineBasicBlock::iterator MBBI);
+  bool expandVendorXcvsimdShuffle(MachineBasicBlock &MBB,
+                                  MachineBasicBlock::iterator MBBI);
 #ifndef NDEBUG
   unsigned getInstSizeInBytes(const MachineFunction &MF) const {
     unsigned Size = 0;
@@ -192,6 +194,8 @@ bool RISCVExpandPseudo::expandMI(MachineBasicBlock &MBB,
     return expandVMSET_VMCLR(MBB, MBBI, RISCV::VMXNOR_MM);
   case RISCV::PseudoReadVLENBViaVSETVLIX0:
     return expandPseudoReadVLENBViaVSETVLIX0(MBB, MBBI);
+  case RISCV::CV_SHUFFLE_SCI_B_PSEUDO:
+    return expandVendorXcvsimdShuffle(MBB, MBBI);
   }
 
   return false;
@@ -831,6 +835,35 @@ bool RISCVPreRAExpandPseudo::expandLoadTLSDescAddress(
       .addReg(RISCV::X4);
 
   MI.eraseFromParent();
+  return true;
+}
+
+bool RISCVExpandPseudo::expandVendorXcvsimdShuffle(
+    MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI) {
+  // CV_SHUFFLE_SCI_B_PSEUDO takes an 8-bit immediate.
+  // Bits [7:6] select one of four cv.shuffleIx.sci.b instructions.
+  // Bits [5:0] become the 6-bit signed immediate payload.
+  DebugLoc DL = MBBI->getDebugLoc();
+  Register DstReg = MBBI->getOperand(0).getReg();
+  Register SrcReg = MBBI->getOperand(1).getReg();
+  unsigned Imm = MBBI->getOperand(2).getImm();
+
+  // Select the correct real instruction based on bits [7:6]
+  static const unsigned Opcodes[] = {
+      RISCV::CV_SHUFFLEI0_SCI_B,
+      RISCV::CV_SHUFFLEI1_SCI_B,
+      RISCV::CV_SHUFFLEI2_SCI_B,
+      RISCV::CV_SHUFFLEI3_SCI_B,
+  };
+  unsigned OpcIdx = (Imm >> 6) & 0x3;
+  unsigned Imm6 = Imm & 0x3F;
+
+  const MCInstrDesc &Desc = TII->get(Opcodes[OpcIdx]);
+  BuildMI(MBB, MBBI, DL, Desc, DstReg)
+      .addReg(SrcReg)
+      .addImm(Imm6);
+
+  MBBI->eraseFromParent();
   return true;
 }
 
