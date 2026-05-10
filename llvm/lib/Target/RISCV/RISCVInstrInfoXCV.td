@@ -49,6 +49,23 @@ def trailing1sPlus1 : SDNodeXForm<imm, [{
                           SDLoc(N), N->getValueType(0));
 }]>;
 
+// Type-safe simm12 predicates for XCVmem post-increment stores.
+// The hardware accepts any simm12 byte offset, but emitting an unaligned
+// post-increment for a half/word store leaves the next access misaligned
+// and traps on CV32E40P. Restrict to multiples of the access size.
+
+def simm12_postinc_b : Operand<i32>, ImmLeaf<i32, [{
+  return isInt<12>(Imm);
+}]>;
+
+def simm12_postinc_h : Operand<i32>, ImmLeaf<i32, [{
+  return isInt<12>(Imm) && (Imm & 0x1) == 0;
+}]>;
+
+def simm12_postinc_w : Operand<i32>, ImmLeaf<i32, [{
+  return isInt<12>(Imm) && (Imm & 0x3) == 0;
+}]>;
+
 //===----------------------------------------------------------------------===//
 // Instruction Class Templates
 //===----------------------------------------------------------------------===//
@@ -595,6 +612,13 @@ let Predicates = [HasVendorXCVbi, IsRV32] in {
   def CV_BNEIMM : CVInstImmBranch<0b111, (outs),
         (ins GPR:$rs1, simm5:$imm5, bare_simm13_lsb0:$imm12),
         "cv.bneimm", "$rs1, $imm5, $imm12">, Sched<[]>;
+  // Long-branch relaxation pseudos for cv.beqimm / cv.bneimm. These are emitted
+  // by the RISCVAsmBackend when the target of a CV_BEQIMM / CV_BNEIMM is
+  // further than +/-4 KiB away. Each expands to an inverted short cv.{n,b}eimm
+  // (4 bytes) plus an unconditional JAL trampoline (4 bytes). Reuses the
+  // LongBcciPseudo class from RISCVInstrInfo.td (size = 8 bytes, simm5 imm).
+  def PseudoLongCV_BEQIMM : LongBcciPseudo<simm5, 8>;
+  def PseudoLongCV_BNEIMM : LongBcciPseudo<simm5, 8>;
 }
 
 let Predicates = [HasVendorXCVmem, IsRV32] in {
@@ -675,9 +699,17 @@ class CVLdrrPat<PatFrag LoadOp, RVInst Inst>
     : Pat<(i32 (LoadOp CVrr:$regreg)),
           (Inst CVrr:$regreg)>;
 
-class CVStriPat<PatFrag StoreOp, RVInst Inst>
-    : Pat<(StoreOp (i32 GPR:$rs2), GPR:$rs1, simm12_lo:$imm12),
-          (Inst GPR:$rs2, GPR:$rs1, simm12_lo:$imm12)>;
+class CVStriPatB<PatFrag StoreOp, RVInst Inst>
+    : Pat<(StoreOp (i32 GPR:$rs2), GPR:$rs1, simm12_postinc_b:$imm12),
+          (Inst GPR:$rs2, GPR:$rs1, simm12_postinc_b:$imm12)>;
+
+class CVStriPatH<PatFrag StoreOp, RVInst Inst>
+    : Pat<(StoreOp (i32 GPR:$rs2), GPR:$rs1, simm12_postinc_h:$imm12),
+          (Inst GPR:$rs2, GPR:$rs1, simm12_postinc_h:$imm12)>;
+
+class CVStriPatW<PatFrag StoreOp, RVInst Inst>
+    : Pat<(StoreOp (i32 GPR:$rs2), GPR:$rs1, simm12_postinc_w:$imm12),
+          (Inst GPR:$rs2, GPR:$rs1, simm12_postinc_w:$imm12)>;
 
 class CVStrriPat<PatFrag StoreOp, RVInst Inst>
     : Pat<(StoreOp (i32 GPR:$rs2), GPR:$rs1, GPR:$rs3),
@@ -696,9 +728,9 @@ let Predicates = [HasVendorXCVmem, IsRV32], AddedComplexity = 1 in {
   def : CVLdrrPat<extloadi16, CV_LHU_rr>;
   def : CVLdrrPat<load, CV_LW_rr>;
 
-  def : CVStriPat<post_truncsti8, CV_SB_ri_inc>;
-  def : CVStriPat<post_truncsti16, CV_SH_ri_inc>;
-  def : CVStriPat<post_store, CV_SW_ri_inc>;
+  def : CVStriPatB<post_truncsti8, CV_SB_ri_inc>;
+  def : CVStriPatH<post_truncsti16, CV_SH_ri_inc>;
+  def : CVStriPatW<post_store, CV_SW_ri_inc>;
 
   def : CVStrriPat<post_truncsti8, CV_SB_rr_inc>;
   def : CVStrriPat<post_truncsti16, CV_SH_rr_inc>;
@@ -829,7 +861,7 @@ class PatCoreVMacGprGprUimm5 <string intr, string asm>
   : Pat<(!cast<Intrinsic>("int_riscv_cv_mac_" # intr) GPR:$rs1, GPR:$rs2, cv_tuimm5:$imm5),
         (!cast<RVInst>("CV_" # asm) GPR:$rs1, GPR:$rs2, cv_tuimm5:$imm5)>;
 
-let Predicates = [HasVendorXCVmac] in {
+let Predicates = [HasVendorXCVmac, IsRV32] in {
   def : PatCoreVMacGprGprGpr<"mac", "MAC">;
   def : PatCoreVMacGprGprGpr<"msu", "MSU">;
 
@@ -1145,11 +1177,13 @@ let Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1 in {
 
 let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
   // acc + (a * b) → cv.mac
-  def : Pat<(i32 (add GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+  // mul_oneuse: bail out if the multiplication result is used elsewhere, because cv.mac ties rd as both input and output and would clobber it.
+  def : Pat<(i32 (add GPR:$rd, (i32 (mul_oneuse GPR:$rs1, GPR:$rs2)))),
             (CV_MAC GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // acc - (a * b) → cv.msu
-  def : Pat<(i32 (sub GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+  // mul_oneuse: bail out if the multiplication result is used elsewhere, because cv.msu ties rd as both input and output and would clobber it.
+  def : Pat<(i32 (sub GPR:$rd, (i32 (mul_oneuse GPR:$rs1, GPR:$rs2)))),
             (CV_MSU GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 }
 
@@ -1159,38 +1193,44 @@ let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
 
 // ---- Immediate shift variants (RRI format) ----
 let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 3 in {
+  // add_oneuse: prevent clobbering rs1+rs2 if it is also consumed elsewhere.
+  // sub_oneuse: prevent clobbering rs1-rs2 if it is also consumed elsewhere.
+
   // cv.addn rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >>> imm5 (arithmetic)
-  def : Pat<(i32 (sra (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (sra (i32 (add_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_ADDN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.addun rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >> imm5 (logical)
-  def : Pat<(i32 (srl (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (srl (i32 (add_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_ADDUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.subn rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >>> imm5 (arithmetic)
-  def : Pat<(i32 (sra (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (sra (i32 (sub_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_SUBN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.subun rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >> imm5 (logical)
-  def : Pat<(i32 (srl (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (srl (i32 (sub_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_SUBUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 } // Predicates = [HasVendorXCValu, IsRV32]
 
 // ---- Register shift variants (NR format, tied rd) ----
 let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 2 in {
+  // add_oneuse / sub_oneuse: these instructions write back into rd, so the inner add/sub MUST have a single use,
+  // otherwise the previous value of rd is lost while still being needed by another node in the DAG.
+
   // cv.addnr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (arithmetic)
-  def : Pat<(i32 (sra (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (sra (i32 (add_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_ADDNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.addunr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (logical)
-  def : Pat<(i32 (srl (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (srl (i32 (add_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_ADDUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.subnr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (arithmetic)
-  def : Pat<(i32 (sra (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (sra (i32 (sub_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_SUBNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.subunr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (logical)
-  def : Pat<(i32 (srl (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (srl (i32 (sub_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_SUBUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 } // Predicates = [HasVendorXCValu, IsRV32]
