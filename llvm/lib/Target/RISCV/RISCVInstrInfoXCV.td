@@ -1145,11 +1145,13 @@ let Predicates = [HasVendorXCVsimd, IsRV32], AddedComplexity = 1 in {
 
 let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
   // acc + (a * b) → cv.mac
-  def : Pat<(i32 (add GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+  // mul_oneuse: bail out if the multiplication result is used elsewhere, because cv.mac ties rd as both input and output and would clobber it.
+  def : Pat<(i32 (add GPR:$rd, (i32 (mul_oneuse GPR:$rs1, GPR:$rs2)))),
             (CV_MAC GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // acc - (a * b) → cv.msu
-  def : Pat<(i32 (sub GPR:$rd, (i32 (mul GPR:$rs1, GPR:$rs2)))),
+  // mul_oneuse: bail out if the multiplication result is used elsewhere, because cv.msu ties rd as both input and output and would clobber it.
+  def : Pat<(i32 (sub GPR:$rd, (i32 (mul_oneuse GPR:$rs1, GPR:$rs2)))),
             (CV_MSU GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 }
 
@@ -1159,38 +1161,44 @@ let Predicates = [HasVendorXCVmac, IsRV32], AddedComplexity = 2 in {
 
 // ---- Immediate shift variants (RRI format) ----
 let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 3 in {
+  // add_oneuse: prevent clobbering rs1+rs2 if it is also consumed elsewhere.
+  // sub_oneuse: prevent clobbering rs1-rs2 if it is also consumed elsewhere.
+
   // cv.addn rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >>> imm5 (arithmetic)
-  def : Pat<(i32 (sra (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (sra (i32 (add_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_ADDN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.addun rd, rs1, rs2, imm5  →  rd = (rs1 + rs2) >> imm5 (logical)
-  def : Pat<(i32 (srl (i32 (add GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (srl (i32 (add_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_ADDUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.subn rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >>> imm5 (arithmetic)
-  def : Pat<(i32 (sra (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (sra (i32 (sub_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_SUBN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 
   // cv.subun rd, rs1, rs2, imm5  →  rd = (rs1 - rs2) >> imm5 (logical)
-  def : Pat<(i32 (srl (i32 (sub GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
+  def : Pat<(i32 (srl (i32 (sub_oneuse GPR:$rs1, GPR:$rs2)), cv_uimm5:$imm)),
             (CV_SUBUN GPR:$rs1, GPR:$rs2, cv_uimm5:$imm)>;
 } // Predicates = [HasVendorXCValu, IsRV32]
 
 // ---- Register shift variants (NR format, tied rd) ----
 let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 2 in {
+  // add_oneuse / sub_oneuse: these instructions write back into rd, so the inner add/sub MUST have a single use,
+  // otherwise the previous value of rd is lost while still being needed by another node in the DAG.
+
   // cv.addnr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (arithmetic)
-  def : Pat<(i32 (sra (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (sra (i32 (add_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_ADDNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.addunr rd, rs1, rs2  →  rd = (rd + rs1) >> rs2 (logical)
-  def : Pat<(i32 (srl (i32 (add GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (srl (i32 (add_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_ADDUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.subnr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (arithmetic)
-  def : Pat<(i32 (sra (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (sra (i32 (sub_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_SUBNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 
   // cv.subunr rd, rs1, rs2  →  rd = (rd - rs1) >> rs2 (logical)
-  def : Pat<(i32 (srl (i32 (sub GPR:$rd, GPR:$rs1)), GPR:$rs2)),
+  def : Pat<(i32 (srl (i32 (sub_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_SUBUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 } // Predicates = [HasVendorXCValu, IsRV32]
