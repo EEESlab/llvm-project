@@ -2430,6 +2430,13 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       if (!Opcode)
         break;
 
+      if (Simm12) {
+        int64_t OffVal = cast<ConstantSDNode>(Offset)->getSExtValue();
+        unsigned Size = Load->getMemoryVT().getStoreSize();
+        if ((OffVal & (Size - 1)) != 0)
+          break;
+      }
+
       ReplaceNode(Node, CurDAG->getMachineNode(Opcode, DL, XLenVT, XLenVT,
                                                Chain.getSimpleValueType(), Base,
                                                Offset, Chain));
