@@ -289,6 +289,29 @@ void emit_for_compound_step() {
   // CHECK: }
 }
 
+// Test nowait clause (#pragma omp for nowait)
+void emit_for_nowait() {
+  // CHECK: cir.func{{.*}}@{{.*}}emit_for_nowait
+#pragma omp parallel
+  {
+#pragma omp for nowait
+    for (int i = 0; i < 10; i++) {
+        during(i);
+    }
+  }
+  // CHECK: omp.parallel {
+
+  // The nowait clause sets the `nowait` unit attribute on omp.wsloop,
+  // eliminating the implicit barrier at the end of the worksharing loop.
+  // CHECK: omp.wsloop nowait {
+  // CHECK-NEXT: omp.loop_nest
+  // CHECK: omp.yield
+  // CHECK: }
+  // CHECK: }
+  // CHECK: omp.terminator
+  // CHECK: }
+}
+
 // Test commuted step expression (i = step + i)
 void emit_for_commuted_step() {
   // CHECK: cir.func{{.*}}@{{.*}}emit_for_commuted_step

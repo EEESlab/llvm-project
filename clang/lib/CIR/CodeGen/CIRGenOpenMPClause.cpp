@@ -121,6 +121,22 @@ public:
   // per default, quindi non serve generare codice aggiuntivo.
   void VisitOMPSharedClause(const OMPSharedClause *) {}
 
+  /// Clausola nowait.
+  ///
+  /// Elimina la barriera implicita alla fine della regione di
+  /// worksharing, permettendo ai thread di proseguire senza
+  /// sincronizzarsi. È rappresentata come un UnitAttr (presente =
+  /// nowait, assente = barriera implicita).
+  ///
+  /// Ha significato solo su omp.wsloop (#pragma omp for nowait). Per
+  /// omp.single la clausola è gestita direttamente nel suo emitter di
+  /// direttiva. Per altre op (es. ParallelOp in `parallel for`) la
+  /// clausola non è valida e viene ignorata qui.
+  void VisitOMPNowaitClause(const OMPNowaitClause *) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::WsloopOp>)
+      operation.setNowaitAttr(builder.getUnitAttr());
+  }
+
   /// Clausola schedule(kind[, chunk_size]).
   ///
   /// Specifica come le iterazioni di un loop vengono distribuite tra
