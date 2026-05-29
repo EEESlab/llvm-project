@@ -137,6 +137,38 @@ public:
       operation.setNowaitAttr(builder.getUnitAttr());
   }
 
+  /// Clausola num_threads(integer-expression).
+  ///
+  /// Specifica il numero di thread richiesti per la regione parallela.
+  /// È rappresentata come operando (variadico) num_threads_vars su
+  /// omp.parallel. Il dialetto OMP richiede un tipo intero standard,
+  /// quindi il valore CIR viene convertito tramite
+  /// UnrealizedConversionCastOp (analogamente al chunk size di schedule).
+  ///
+  /// Ha significato solo su omp.parallel. Per altre op (es. WsloopOp in
+  /// `parallel for`) è gestita dall'op parallel esterna. No-op qui.
+  void VisitOMPNumThreadsClause(const OMPNumThreadsClause *clause) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::ParallelOp>) {
+      // Valuta l'espressione del numero di thread.
+      mlir::Value cirNumThreads = cgf.emitScalarExpr(clause->getNumThreads());
+      // Converte il tipo CIR int → tipo intero standard MLIR, necessario
+      // perché il dialetto OMP non conosce i tipi CIR.
+      if (auto cirIntTy =
+              mlir::dyn_cast<cir::IntType>(cirNumThreads.getType())) {
+        mlir::Type stdIntTy = builder.getIntegerType(cirIntTy.getWidth());
+        mlir::Value stdNumThreads =
+            mlir::UnrealizedConversionCastOp::create(
+                builder, cgf.getLoc(clause->getBeginLoc()), stdIntTy,
+                cirNumThreads)
+                .getResult(0);
+        // Aggiunge il valore all'operando variadico num_threads_vars.
+        operation.getNumThreadsVarsMutable().append(stdNumThreads);
+      }
+    }
+    // Per op non-ParallelOp, num_threads è gestito dall'op parallel
+    // esterna. No-op intenzionale.
+  }
+
   /// Clausola schedule(kind[, chunk_size]).
   ///
   /// Specifica come le iterazioni di un loop vengono distribuite tra
