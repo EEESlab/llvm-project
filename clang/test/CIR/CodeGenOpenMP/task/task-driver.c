@@ -36,15 +36,20 @@ void test_task_basic() {
   printf("basic: sum=%d (expected 36)\n", sum);
 }
 
-// Test 2: implicit firstprivate — `x` is captured by value at task
-// creation; the later write to x must not affect the task.
+// Test 2: implicit firstprivate — `x` is declared INSIDE the parallel
+// region, so it is not shared in the task's enclosing context and the
+// default data-sharing for it in the task is firstprivate: it is
+// captured by value at task creation, and the later write must not
+// affect the task. (Had x been declared before the parallel region it
+// would be shared in the enclosing context and would stay shared in
+// the task too — see OpenMP spec on implicit DSA in tasks.)
 void test_task_implicit_firstprivate() {
-  int x = 100;
   int seen = -1;
-#pragma omp parallel
+#pragma omp parallel shared(seen)
   {
 #pragma omp single
     {
+      int x = 100;
 #pragma omp task shared(seen)
       {
         seen = x; // x is implicitly firstprivate (captured = 100)
