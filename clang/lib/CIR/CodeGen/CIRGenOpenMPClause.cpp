@@ -121,6 +121,12 @@ public:
   // per default, quindi non serve generare codice aggiuntivo.
   void VisitOMPSharedClause(const OMPSharedClause *) {}
 
+  // La clausola default(shared|none|...) è un no-op in codegen:
+  // Sema la usa per calcolare gli attributi di data sharing impliciti,
+  // che arrivano qui già materializzati come clausole implicite
+  // (es. OMPFirstprivateClause implicite sui task).
+  void VisitOMPDefaultClause(const OMPDefaultClause *) {}
+
   /// Clausola nowait.
   ///
   /// Elimina la barriera implicita alla fine della regione di
@@ -264,6 +270,106 @@ public:
     // gestito quando si processa l'op wsloop interna. No-op intenzionale.
   }
 
+  /// Converte un valore booleano CIR (!cir.bool) in un i1 standard MLIR.
+  ///
+  /// Le clausole if/final del dialetto OMP richiedono operandi i1.
+  /// Il type converter CIR→LLVM mappa !cir.bool a i1 come tipo valore,
+  /// quindi il cast unrealized si risolve a i1→i1 durante il lowering
+  /// e viene eliminato dal pass reconcile-unrealized-casts
+  /// (stesso meccanismo dei cast int usati per num_threads/chunk).
+  mlir::Value cirBoolToI1(mlir::Value cirBool, mlir::Location loc) {
+    return mlir::UnrealizedConversionCastOp::create(builder, loc,
+                                                    builder.getI1Type(),
+                                                    cirBool)
+        .getResult(0);
+  }
+
+  /// Clausola if([directive-name-modifier:] condition).
+  ///
+  /// Se la condizione è falsa:
+  ///   - su task: il task diventa "undeferred" (eseguito subito dal
+  ///     thread che lo incontra)
+  ///   - su parallel: la regione è eseguita da un solo thread
+  ///
+  /// Il modificatore opzionale (es. if(task: c) in una direttiva
+  /// combinata) limita la clausola a una specifica direttiva: viene
+  /// applicata solo se assente (OMPD_unknown = vale per tutte) o se
+  /// corrisponde all'op corrente.
+  void VisitOMPIfClause(const OMPIfClause *clause) {
+    OpenMPDirectiveKind mod = clause->getNameModifier();
+    mlir::Location loc = cgf.getLoc(clause->getBeginLoc());
+    if constexpr (std::is_same_v<OpTy, mlir::omp::TaskOp>) {
+      if (mod == llvm::omp::OMPD_unknown || mod == llvm::omp::OMPD_task) {
+        // Valuta la condizione come booleano CIR e fai il bridge a i1.
+        mlir::Value cond = cgf.evaluateExprAsBool(clause->getCondition());
+        operation.getIfExprMutable().assign(cirBoolToI1(cond, loc));
+      }
+    } else if constexpr (std::is_same_v<OpTy, mlir::omp::ParallelOp>) {
+      if (mod == llvm::omp::OMPD_unknown || mod == llvm::omp::OMPD_parallel) {
+        mlir::Value cond = cgf.evaluateExprAsBool(clause->getCondition());
+        operation.getIfExprMutable().assign(cirBoolToI1(cond, loc));
+      }
+    }
+    // Per altre op (es. WsloopOp in `parallel for`), la clausola è
+    // gestita dall'op a cui si applica. No-op intenzionale.
+  }
+
+  /// Clausola final(condition) — solo su task.
+  ///
+  /// Se la condizione è vera, il task generato è un "final task":
+  /// tutti i task creati al suo interno vengono eseguiti immediatamente
+  /// (inclusi) anziché essere differiti. Usata per limitare l'overhead
+  /// di task troppo piccoli (es. ai livelli profondi di una ricorsione).
+  void VisitOMPFinalClause(const OMPFinalClause *clause) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::TaskOp>) {
+      mlir::Value cond = cgf.evaluateExprAsBool(clause->getCondition());
+      operation.getFinalMutable().assign(
+          cirBoolToI1(cond, cgf.getLoc(clause->getBeginLoc())));
+    }
+  }
+
+  /// Clausola priority(integer-expression) — solo su task.
+  ///
+  /// Suggerimento al runtime sull'ordine di esecuzione dei task
+  /// differiti: valori più alti = priorità maggiore. Come per
+  /// num_threads, il valore CIR int viene convertito al tipo intero
+  /// standard MLIR tramite UnrealizedConversionCastOp.
+  void VisitOMPPriorityClause(const OMPPriorityClause *clause) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::TaskOp>) {
+      mlir::Value cirPriority = cgf.emitScalarExpr(clause->getPriority());
+      if (auto cirIntTy =
+              mlir::dyn_cast<cir::IntType>(cirPriority.getType())) {
+        mlir::Type stdIntTy = builder.getIntegerType(cirIntTy.getWidth());
+        mlir::Value stdPriority =
+            mlir::UnrealizedConversionCastOp::create(
+                builder, cgf.getLoc(clause->getBeginLoc()), stdIntTy,
+                cirPriority)
+                .getResult(0);
+        operation.getPriorityMutable().assign(stdPriority);
+      }
+    }
+  }
+
+  /// Clausola untied — solo su task.
+  ///
+  /// Un task untied può essere ripreso da un thread diverso da quello
+  /// che lo ha iniziato dopo una sospensione. Rappresentata come
+  /// UnitAttr (presente = untied, assente = tied, il default).
+  void VisitOMPUntiedClause(const OMPUntiedClause *) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::TaskOp>)
+      operation.setUntiedAttr(builder.getUnitAttr());
+  }
+
+  /// Clausola mergeable — solo su task.
+  ///
+  /// Indica al runtime che il task può essere fuso ("merged") con il
+  /// task generante quando è undeferred o incluso, evitando la
+  /// creazione di un nuovo data environment. Rappresentata come UnitAttr.
+  void VisitOMPMergeableClause(const OMPMergeableClause *) {
+    if constexpr (std::is_same_v<OpTy, mlir::omp::TaskOp>)
+      operation.setMergeableAttr(builder.getUnitAttr());
+  }
+
   /// Punto d'ingresso: visita tutte le clausole una per una.
   void emitClauses(ArrayRef<const OMPClause *> clauses) {
     for (const auto *c : clauses)
@@ -309,4 +415,5 @@ void CIRGenFunction::emitOpenMPClauses(Op &op,
       N &, ArrayRef<const OMPClause *>);
 EXPL_SPEC(mlir::omp::ParallelOp) // Per #pragma omp parallel
 EXPL_SPEC(mlir::omp::WsloopOp)   // Per #pragma omp for
+EXPL_SPEC(mlir::omp::TaskOp)     // Per #pragma omp task
 #undef EXPL_SPEC

@@ -15,6 +15,8 @@
 //   - single:        emitOMPSingleDirective
 //   - master:        emitOMPMasterDirective
 //   - barrier:       emitOMPBarrierDirective
+//   - task:          emitOMPTaskDirective
+//   - taskwait:      emitOMPTaskwaitDirective
 //
 // Le direttive non ancora implementate emettono un errore "Not Yet
 // Implemented" (NYI) tramite errorNYI.
@@ -640,10 +642,27 @@ CIRGenFunction::emitOMPForDirective(const OMPForDirective &s) {
 // Stub NYI per direttive semplici
 // =====================================================================
 
+// =====================================================================
+// emitOMPTaskwaitDirective — #pragma omp taskwait
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp taskwait`.
+///
+/// Genera un'op `omp.taskwait` che attende il completamento dei task
+/// figli generati dal task corrente. Le clausole depend/nowait non
+/// sono ancora supportate.
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskwaitDirective(const OMPTaskwaitDirective &s) {
-  getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPTaskwaitDirective");
-  return mlir::failure();
+  if (!s.clauses().empty()) {
+    getCIRGenModule().errorNYI(s.getSourceRange(),
+                               "OpenMP taskwait with clauses");
+    return mlir::failure();
+  }
+  // Il builder basato su TaskwaitOperands inizializza correttamente
+  // l'attributo operandSegmentSizes (richiesto da AttrSizedOperandSegments).
+  mlir::omp::TaskwaitOp::create(builder, getLoc(s.getBeginLoc()),
+                                mlir::omp::TaskwaitOperands());
+  return mlir::success();
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskyieldDirective(const OMPTaskyieldDirective &s) {
@@ -1022,10 +1041,89 @@ mlir::LogicalResult CIRGenFunction::emitOMPParallelSectionsDirective(
                              "OpenMP OMPParallelSectionsDirective");
   return mlir::failure();
 }
+// =====================================================================
+// emitOMPTaskDirective — #pragma omp task
+// =====================================================================
+
+/// Emette una direttiva `#pragma omp task { body }`.
+///
+/// Genera un'op `omp.task` con:
+///   - Clausole semplici (if, final, priority, untied, mergeable)
+///     tramite emitOpenMPClauses
+///   - Variabili private/firstprivate tramite OMPDataSharingProcessor
+///
+/// NOTA sul data sharing implicito: per i task, le variabili referenziate
+/// nel body che non sono shared nel contesto esterno sono firstprivate
+/// per default (OpenMP spec). Non serve gestirlo esplicitamente qui:
+/// Sema aggiunge clausole OMPFirstprivateClause IMPLICITE a s.clauses()
+/// per le variabili catturate, quindi il DataSharingProcessor le
+/// raccoglie come se fossero state scritte dall'utente.
+///
+/// Struttura IR risultante (analoga a quella generata da Flang):
+///   omp.task private(@x.privatizer %x -> %arg0 : !llvm.ptr) {
+///     // cast !llvm.ptr → !cir.ptr<T>
+///     // ... body emesso con variabili rimappate ...
+///     omp.terminator
+///   }
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskDirective(const OMPTaskDirective &s) {
-  getCIRGenModule().errorNYI(s.getSourceRange(), "OpenMP OMPTaskDirective");
-  return mlir::failure();
+  mlir::LogicalResult res = mlir::success();
+  mlir::Location begin = getLoc(s.getBeginLoc());
+  mlir::Location end = getLoc(s.getEndLoc());
+
+  // Crea l'op omp.task tramite il builder basato su TaskOperands:
+  // a differenza del builder generico, inizializza correttamente
+  // l'attributo operandSegmentSizes (TaskOp ha AttrSizedOperandSegments),
+  // necessario per poter aggiungere operandi variadici in seguito
+  // con le mutable operand ranges.
+  auto taskOp =
+      mlir::omp::TaskOp::create(builder, begin, mlir::omp::TaskOperands());
+
+  // Processa le clausole semplici (if, final, priority, untied,
+  // mergeable). Le clausole private/firstprivate sono no-op qui:
+  // vengono gestite dal DataSharingProcessor subito sotto.
+  emitOpenMPClauses(taskOp, s.clauses());
+
+  // === Data Sharing: private/firstprivate (esplicite e implicite) ===
+  OMPPrivateClauseOps clauseOps;
+  OMPDataSharingProcessor dsp(*this, builder, begin);
+  dsp.processStep1(s.clauses(), clauseOps, taskOp);
+
+  if (dsp.hasPrivateVars()) {
+    taskOp.getPrivateVarsMutable().append(clauseOps.privateVars);
+    taskOp.setPrivateSymsAttr(
+        mlir::ArrayAttr::get(builder.getContext(), clauseOps.privateSyms));
+  }
+
+  // === Creazione della regione e emissione del body ===
+  {
+    mlir::Block &block = taskOp.getRegion().emplaceBlock();
+
+    // Block arguments !llvm.ptr per le variabili private: riceveranno
+    // i puntatori alle copie task-local dal runtime OpenMP.
+    dsp.addBlockArgs(block);
+
+    mlir::OpBuilder::InsertionGuard guard(builder);
+    builder.setInsertionPointToEnd(&block);
+
+    // Remapping RAII: nel body, le variabili puntano alle copie private.
+    auto remapGuard = dsp.applyRemapping();
+
+    LexicalScope ls{*this, begin, builder.getInsertionBlock()};
+
+    if (s.hasCancel())
+      getCIRGenModule().errorNYI(s.getBeginLoc(), "OpenMP Task with Cancel");
+
+    // Recupera e srotola il body dal CapturedStmt.
+    const CapturedStmt *cs = s.getCapturedStmt(llvm::omp::OMPD_task);
+    const Stmt *bodyStmt = cs->getCapturedStmt();
+
+    res = emitStmt(bodyStmt, /*useCurrentScope=*/true);
+
+    mlir::omp::TerminatorOp::create(builder, end);
+  }
+
+  return res;
 }
 mlir::LogicalResult
 CIRGenFunction::emitOMPTaskgroupDirective(const OMPTaskgroupDirective &s) {
