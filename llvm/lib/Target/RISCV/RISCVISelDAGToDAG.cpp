@@ -1133,8 +1133,9 @@ bool RISCVDAGToDAGISel::tryCVBitManipExtractU(SDNode *Node) {
   if (!MaskC)
     return false;
 
-  // If LHS is (srl X, c) and the shift result is used elsewhere, folding into cv.extractu would leave the
-  // other consumer reading a value we never compute again. Bail out and let the generic SRLI + ANDI lower.
+  // If LHS is (srl X, c) and the shift result is used elsewhere, folding into
+  // cv.extractu would leave the other consumer reading a value we never compute
+  // again. Bail out and let the generic SRLI + ANDI lower.
   if (LHS.getOpcode() == ISD::SRL && !LHS.hasOneUse())
     return false;
 
@@ -1278,7 +1279,8 @@ bool RISCVDAGToDAGISel::tryCVBitManipBClr(SDNode *Node) {
   if (InvMask == 0)
     return false;
 
-  // Skip cases where the mask itself is a low mask (extractu/extbz/exthz handle those)
+  // Skip cases where the mask itself is a low mask (extractu/extbz/exthz handle
+  // those)
   if (isMask_32(Mask))
     return false;
 
@@ -1289,7 +1291,8 @@ bool RISCVDAGToDAGISel::tryCVBitManipBClr(SDNode *Node) {
   unsigned Width = llvm::popcount(InvMask);
   unsigned Offset = llvm::countr_zero(InvMask);
 
-  // Skip if LHS is itself a shift — let extractu handle (srl X, C) & mask patterns
+  // Skip if LHS is itself a shift — let extractu handle (srl X, C) & mask
+  // patterns
   if (LHS.getOpcode() == ISD::SRL)
     return false;
 
@@ -1423,7 +1426,7 @@ bool RISCVDAGToDAGISel::tryCVBitManipInsert(SDNode *Node) {
     if (Width == 0 || Width > 32 || Offset > 31 || (Width + Offset) > 32)
       continue;
 
-    uint32_t LowMask = (1u << Width) - 1;  // (1 << width) - 1
+    uint32_t LowMask = (1u << Width) - 1; // (1 << width) - 1
     SDValue RS1;
 
     // --- Form 1: (shl (and rs1, LowMask), Offset) ---
@@ -1478,8 +1481,9 @@ bool RISCVDAGToDAGISel::tryCVBitManipInsert(SDNode *Node) {
     if (!RS1)
       continue;
 
-    // The OR's input subtree (ClearSide and ValueSide) and the AND inside ClearSide must have a single use.
-    // Otherwise CV_INSERT, with its tied rd_wb = rd, would invalidate the previous rd for downstream consumers.
+    // The OR's input subtree (ClearSide and ValueSide) and the AND inside
+    // ClearSide must have a single use. Otherwise CV_INSERT, with its tied
+    // rd_wb = rd, would invalidate the previous rd for downstream consumers.
     if (!ClearSide.hasOneUse() || !ValueSide.hasOneUse())
       continue;
 

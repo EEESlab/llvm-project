@@ -26,7 +26,7 @@ extern "C" {
 
 #if defined(__riscv_xcvbitmanip)
 
-#define __DEFAULT_FN_ATTRS                                                      \
+#define __DEFAULT_FN_ATTRS                                                     \
   __attribute__((__always_inline__, __nodebug__, __artificial__))
 
 /* ---------------------------------------------------------------------------
@@ -35,34 +35,38 @@ extern "C" {
  *   IS3 = bit-width (uimm5), IS2 = lower bit index (uimm5)
  *   The two immediates are packed as a single uimm10: IS3<<5 | IS2
  *   IMM must be a compile-time constant.
- * --------------------------------------------------------------------------- */
-#define __riscv_cv_bitmanip_extract(__rs1, __IMM)                               \
+ * ---------------------------------------------------------------------------
+ */
+#define __riscv_cv_bitmanip_extract(__rs1, __IMM)                              \
   ((int32_t)__builtin_riscv_cv_bitmanip_extract((uint32_t)(__rs1),             \
-                                                 (uint32_t)(__IMM)))
+                                                (uint32_t)(__IMM)))
 
 /* ---------------------------------------------------------------------------
  * cv.extractu rd, rs1, IS3, IS2
  *   rd = ZeroExtend(rs1[IS3+IS2-1 : IS2], 32)
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define __riscv_cv_bitmanip_extractu(__rs1, __IMM)                             \
-  ((uint32_t)__builtin_riscv_cv_bitmanip_extractu((uint32_t)(__rs1),          \
-                                                   (uint32_t)(__IMM)))
+  ((uint32_t)__builtin_riscv_cv_bitmanip_extractu((uint32_t)(__rs1),           \
+                                                  (uint32_t)(__IMM)))
 
 /* ---------------------------------------------------------------------------
  * cv.bclr rd, rs1, IS3, IS2
  *   rd = rs1 & ~(((1 << IS3) - 1) << IS2)   (clear IS3 bits starting at IS2)
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define __riscv_cv_bitmanip_bclr(__rs1, __IMM)                                 \
-  ((uint32_t)__builtin_riscv_cv_bitmanip_bclr((uint32_t)(__rs1),              \
-                                               (uint32_t)(__IMM)))
+  ((uint32_t)__builtin_riscv_cv_bitmanip_bclr((uint32_t)(__rs1),               \
+                                              (uint32_t)(__IMM)))
 
 /* ---------------------------------------------------------------------------
  * cv.bset rd, rs1, IS3, IS2
  *   rd = rs1 | (((1 << IS3) - 1) << IS2)    (set IS3 bits starting at IS2)
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define __riscv_cv_bitmanip_bset(__rs1, __IMM)                                 \
-  ((uint32_t)__builtin_riscv_cv_bitmanip_bset((uint32_t)(__rs1),              \
-                                               (uint32_t)(__IMM)))
+  ((uint32_t)__builtin_riscv_cv_bitmanip_bset((uint32_t)(__rs1),               \
+                                              (uint32_t)(__IMM)))
 
 /* ---------------------------------------------------------------------------
  * cv.insert rd, rs1, IS3, IS2
@@ -70,11 +74,11 @@ extern "C" {
  *   rd is read-modify-write (the bits outside the target range are preserved).
  *   IS3 = bit-width (uimm5), IS2 = lower bit index (uimm5)
  *   The two immediates are packed as a single uimm10: IS3<<5 | IS2
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define __riscv_cv_bitmanip_insert(__rD, __rs1, __IMM)                         \
-  ((uint32_t)__builtin_riscv_cv_bitmanip_insert((uint32_t)(__rs1),            \
-                                                 (uint32_t)(__IMM),            \
-                                                 (uint32_t)(__rD)))
+  ((uint32_t)__builtin_riscv_cv_bitmanip_insert(                               \
+      (uint32_t)(__rs1), (uint32_t)(__IMM), (uint32_t)(__rD)))
 
 /* ---------------------------------------------------------------------------
  * cv.clb rd, rs1
@@ -88,7 +92,8 @@ extern "C" {
  * standard C expressions (__builtin_ctz, __builtin_clz, __builtin_popcount,
  * rotate patterns) when -march includes xcvbitmanip. No explicit builtin call
  * is required or provided for those four operations.
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 static __inline__ uint32_t __DEFAULT_FN_ATTRS
 __riscv_cv_bitmanip_clb(uint32_t a) {
   return __builtin_riscv_cv_bitmanip_clb(a);
@@ -102,11 +107,11 @@ __riscv_cv_bitmanip_clb(uint32_t a) {
  *
  * Example: cv.bitrev t0, t0, 2, 23 reverses groups of 4 bits within each
  * 24-bit window.
- * --------------------------------------------------------------------------- */
+ * ---------------------------------------------------------------------------
+ */
 #define __riscv_cv_bitmanip_bitrev(__rs1, __IS2, __IS3)                        \
-  ((uint32_t)__builtin_riscv_cv_bitmanip_bitrev((uint32_t)(__rs1),            \
-                                                 (uint32_t)(__IS2),            \
-                                                 (uint32_t)(__IS3)))
+  ((uint32_t)__builtin_riscv_cv_bitmanip_bitrev(                               \
+      (uint32_t)(__rs1), (uint32_t)(__IS2), (uint32_t)(__IS3)))
 
 #endif /* __riscv_xcvbitmanip */
 

@@ -679,22 +679,27 @@ bool SemaRISCV::CheckBuiltinFunctionCall(const TargetInfo &TI,
     return SemaRef.BuiltinConstantArgRange(TheCall, 3, 0, 31);
 
   // XCVsimd — extract/insert index
+  // [0,1] for 2 halfwords
   case RISCV::BI__builtin_riscv_cv_simd_extract_h:
   case RISCV::BI__builtin_riscv_cv_simd_extractu_h:
-  return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 1); // [0,1] for 2 halfwords
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 1);
+  // [0,1] for 2 halfwords
   case RISCV::BI__builtin_riscv_cv_simd_insert_h:
-    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 1); // [0,1] for 2 halfwords
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 1);
+  // [0,3] for 4 bytes
   case RISCV::BI__builtin_riscv_cv_simd_extract_b:
   case RISCV::BI__builtin_riscv_cv_simd_extractu_b:
-  return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3); // [0,3] for 4 bytes
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3);
+  // [0,3] for 4 bytes
   case RISCV::BI__builtin_riscv_cv_simd_insert_b:
-    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 3); // [0,3] for 4 bytes
+    return SemaRef.BuiltinConstantArgRange(TheCall, 2, 0, 3);
   // Note: insert has index at arg 2 not 1
   // Shuffle SCI — 6-bit immediate [0, 63]
   case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_h:
     return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 3);
+  // 8-bit, split by codegen
   case RISCV::BI__builtin_riscv_cv_simd_shuffle_sci_b:
-    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 255); // 8-bit, split by codegen
+    return SemaRef.BuiltinConstantArgRange(TheCall, 1, 0, 255);
 
   // add_h / sub_h div code [0,3] (0=no shift, 1=/2, 2=/4, 3=/8)
   case RISCV::BI__builtin_riscv_cv_simd_add_h:

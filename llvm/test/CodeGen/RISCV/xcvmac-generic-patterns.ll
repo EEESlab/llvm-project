@@ -57,8 +57,8 @@ define i32 @test_mac_loop(ptr %arr, ptr %coeffs, i32 %n) {
 ; CHECK-NEXT:    lw a4, 0(a0)
 ; CHECK-NEXT:    lw a5, 0(a1)
 ; CHECK-NEXT:    addi a2, a2, -1
-; CHECK-NEXT:    addi a1, a1, 4
 ; CHECK-NEXT:    cv.mac a3, a4, a5
+; CHECK-NEXT:    addi a1, a1, 4
 ; CHECK-NEXT:    addi a0, a0, 4
 ; CHECK-NEXT:    bnez a2, .LBB3_1
 ; CHECK-NEXT:  .LBB3_2: # %exit
@@ -99,4 +99,22 @@ define i32 @test_fir_tap(i32 %acc, i32 %coeff, i32 %sample) {
   %mul = mul i32 %coeff, %sample
   %sum = add i32 %acc, %mul
   ret i32 %sum
+}
+
+; mul result has TWO uses: one in the add, one in a separate compare.
+; cv.mac would clobber the multiplication result -> we MUST emit mul + add.
+define i32 @test_mac_no_oneuse(i32 %a, i32 %b, i32 %acc) {
+; CHECK-LABEL: test_mac_no_oneuse:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    mul a0, a0, a1
+; CHECK-NEXT:    sgtz a1, a0
+; CHECK-NEXT:    neg a1, a1
+; CHECK-NEXT:    and a1, a1, a2
+; CHECK-NEXT:    add a0, a0, a1
+; CHECK-NEXT:    ret
+  %mul = mul i32 %a, %b
+  %sum = add i32 %acc, %mul
+  %ok  = icmp sgt i32 %mul, 0
+  %sel = select i1 %ok, i32 %sum, i32 %mul
+  ret i32 %sel
 }
