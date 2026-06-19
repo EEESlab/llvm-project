@@ -859,9 +859,7 @@ bool RISCVExpandPseudo::expandVendorXcvsimdShuffle(
   unsigned Imm6 = Imm & 0x3F;
 
   const MCInstrDesc &Desc = TII->get(Opcodes[OpcIdx]);
-  BuildMI(MBB, MBBI, DL, Desc, DstReg)
-      .addReg(SrcReg)
-      .addImm(Imm6);
+  BuildMI(MBB, MBBI, DL, Desc, DstReg).addReg(SrcReg).addImm(Imm6);
 
   MBBI->eraseFromParent();
   return true;
