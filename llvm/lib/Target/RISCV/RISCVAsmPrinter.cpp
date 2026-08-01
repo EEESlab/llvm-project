@@ -43,6 +43,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/RISCVISAInfo.h"
 #include "llvm/Transforms/Instrumentation/HWAddressSanitizer.h"
+#include <optional>
 
 using namespace llvm;
 
@@ -62,6 +63,8 @@ public:
 
 private:
   const RISCVSubtarget *STI;
+  unsigned CVHWLoopNoRVCDepth = 0;
+  std::optional<MCSubtargetInfo> CVHWLoopNoRVCSTI;
 
 public:
   explicit RISCVAsmPrinter(TargetMachine &TM,
@@ -127,6 +130,11 @@ private:
   void emitNTLHint(const MachineInstr *MI);
 
   void emitLpadAlignedCall(const MachineInstr &MI);
+
+  // XCVHWLoop Support
+  void emitCVHWLoopNoRVCBegin();
+  void emitCVHWLoopNoRVCEnd();
+  void resetCVHWLoopNoRVCState();
 
   // XRay Support
   void LowerPATCHABLE_FUNCTION_ENTER(const MachineInstr *MI);
@@ -269,6 +277,10 @@ void RISCVAsmPrinter::LowerSTATEPOINT(MCStreamer &OutStreamer, StackMaps &SM,
 bool RISCVAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst,
                                      const MCSubtargetInfo &SubtargetInfo) {
   MCInst CInst;
+  if (CVHWLoopNoRVCSTI) {
+    S.emitInstruction(Inst, *CVHWLoopNoRVCSTI);
+    return false;
+  } 
   bool Res = RISCVRVC::compress(CInst, Inst, SubtargetInfo);
   if (Res)
     ++RISCVNumInstrsCompressed;
@@ -380,6 +392,44 @@ void RISCVAsmPrinter::emitNTLHint(const MachineInstr *MI) {
   EmitToStreamer(*OutStreamer, Hint);
 }
 
+void RISCVAsmPrinter::resetCVHWLoopNoRVCState() {
+  CVHWLoopNoRVCDepth = 0;
+  CVHWLoopNoRVCSTI.reset();
+}
+
+void RISCVAsmPrinter::emitCVHWLoopNoRVCBegin() {
+  ++CVHWLoopNoRVCDepth;
+  if (CVHWLoopNoRVCDepth != 1)
+    return;
+
+  CVHWLoopNoRVCSTI.emplace(getSubtargetInfo());
+  if (CVHWLoopNoRVCSTI->hasFeature(RISCV::FeatureStdExtZca))
+    CVHWLoopNoRVCSTI->ToggleFeature(RISCV::FeatureStdExtZca);
+
+  OutStreamer->emitCodeAlignment(Align(4), &getSubtargetInfo());
+  
+  RISCVTargetStreamer &RTS =
+      static_cast<RISCVTargetStreamer &>(*OutStreamer->getTargetStreamer());
+  RTS.emitDirectiveOptionPush();
+  RTS.emitDirectiveOptionNoRVC();
+  RTS.emitDirectiveOptionNoRelax();
+}
+
+void RISCVAsmPrinter::emitCVHWLoopNoRVCEnd() {
+  assert(CVHWLoopNoRVCDepth &&
+         "unbalanced CV hardware-loop no-RVC end marker");
+
+  --CVHWLoopNoRVCDepth;
+  if (CVHWLoopNoRVCDepth)
+    return;
+
+  RISCVTargetStreamer &RTS =
+      static_cast<RISCVTargetStreamer &>(*OutStreamer->getTargetStreamer());
+  RTS.emitDirectiveOptionPop();
+
+  CVHWLoopNoRVCSTI.reset();
+}
+
 void RISCVAsmPrinter::emitInstruction(const MachineInstr *MI) {
   RISCV_MC::verifyInstructionPredicates(MI->getOpcode(), STI->getFeatureBits());
 
@@ -397,6 +447,12 @@ void RISCVAsmPrinter::emitInstruction(const MachineInstr *MI) {
     return;
   case RISCV::KCFI_CHECK:
     LowerKCFI_CHECK(*MI);
+    return;
+  case RISCV::PseudoCVHWLoopNoRVCBegin:
+    emitCVHWLoopNoRVCBegin();
+    return;
+  case RISCV::PseudoCVHWLoopNoRVCEnd:
+    emitCVHWLoopNoRVCEnd();
     return;
   case TargetOpcode::STACKMAP:
     return LowerSTACKMAP(*OutStreamer, SM, *MI);
@@ -553,12 +609,19 @@ bool RISCVAsmPrinter::emitDirectiveOptionArch() {
 
 bool RISCVAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   STI = &MF.getSubtarget<RISCVSubtarget>();
+
+  resetCVHWLoopNoRVCState();
+
   RISCVTargetStreamer &RTS = getTargetStreamer();
 
   bool EmittedOptionArch = emitDirectiveOptionArch();
 
   SetupMachineFunction(MF);
   emitFunctionBody();
+
+  if (CVHWLoopNoRVCDepth != 0)
+    report_fatal_error(
+        "unbalanced CV hardware-loop no-RVC region");
 
   // Emit the XRay table
   emitXRayTable();

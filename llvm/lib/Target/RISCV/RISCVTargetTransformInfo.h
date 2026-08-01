@@ -124,6 +124,12 @@ public:
   bool preferTailFoldingOverEpilogue(TailFoldingInfo *TFI) const override {
     return ST->hasVInstructions();
   }
+  bool isHardwareLoopProfitable(
+      Loop *L,
+      ScalarEvolution &SE,
+      AssumptionCache &AC,
+      TargetLibraryInfo *LibInfo,
+      HardwareLoopInfo &HWLoopInfo) const override;
   TailFoldingStyle getPreferredTailFoldingStyle() const override {
     return ST->hasVInstructions() ? TailFoldingStyle::DataWithEVL
                                   : TailFoldingStyle::None;

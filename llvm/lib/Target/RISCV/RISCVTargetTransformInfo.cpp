@@ -9,14 +9,19 @@
 #include "RISCVTargetTransformInfo.h"
 #include "MCTargetDesc/RISCVMatInt.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Analysis/ScalarEvolution.h"
+#include "llvm/Analysis/ScalarEvolutionExpressions.h"
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/BasicTTIImpl.h"
 #include "llvm/CodeGen/CostTable.h"
 #include "llvm/CodeGen/TargetLowering.h"
 #include "llvm/CodeGen/ValueTypes.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IntrinsicInst.h"
 #include "llvm/IR/IntrinsicsRISCV.h"
 #include "llvm/IR/PatternMatch.h"
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/raw_ostream.h"
 #include "llvm/Transforms/InstCombine/InstCombiner.h"
 #include <cmath>
 #include <optional>
@@ -47,6 +52,40 @@ static cl::opt<unsigned>
 
 static cl::opt<bool> EnableOrLikeSelectOpt("enable-riscv-or-like-select",
                                            cl::init(true), cl::Hidden);
+
+bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
+                                            AssumptionCache &AC,
+                                            TargetLibraryInfo *LibInfo,
+                                            HardwareLoopInfo &HWLoopInfo) const {
+  if (!ST->hasVendorXCVhwlp())
+    return false;
+
+  auto Report = [&](bool Profitable, StringRef Reason) {
+    DEBUG_WITH_TYPE("riscv-hardware-loops", {
+      dbgs() << "XCVhwlp: header=";
+      L->getHeader()->printAsOperand(dbgs(), false);
+      dbgs() << " depth=" << L->getLoopDepth()
+             << " subloops=" << L->getSubLoops().size()
+             << (Profitable ? " ACCEPT " : " REJECT ") << Reason << '\n';
+    });
+    return Profitable;
+  };
+
+  HWLoopInfo.CounterInReg = false;
+  HWLoopInfo.PerformEntryTest = false;
+  HWLoopInfo.IsNestingLegal = true;
+
+  ArrayRef<Loop *> SubLoops = L->getSubLoops();
+
+  if (SubLoops.empty())
+    return Report(true, "innermost loop");
+
+  if (all_of(SubLoops,
+             [](const Loop *SubLoop) { return SubLoop->getSubLoops().empty(); }))
+    return Report(true, "parent of innermost loops only");
+
+  return Report(false, "more than one level above the innermost loops");
+}
 
 InstructionCost
 RISCVTTIImpl::getRISCVInstructionCost(ArrayRef<unsigned> OpCodes, MVT VT,

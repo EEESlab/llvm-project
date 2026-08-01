@@ -307,6 +307,13 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
 
+  // Preserve hardware-loop pseudos (llvm.set.loop.iterations.i32 and
+  // llvm.loop.decrement.i32) for the RISCVHardwareLoops machine pass.
+  if (Subtarget.hasVendorXCVhwlp()) {
+    setOperationAction(ISD::INTRINSIC_VOID, MVT::Other, Custom);
+    setOperationAction(ISD::INTRINSIC_W_CHAIN, MVT::i1, Custom);
+  }
+
   setStackPointerRegisterToSaveRestore(RISCV::X2);
 
   setLoadExtAction({ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD}, XLenVT,
@@ -7876,7 +7883,7 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
   switch (Op.getOpcode()) {
   default:
     reportFatalInternalError(
-        "Unimplemented RISCVTargetLowering::LowerOperation Case");
+        "Unimplemented RISCVTargetLowering::LowerOperation Case");     
   case ISD::PREFETCH:
     return LowerPREFETCH(Op, Subtarget, DAG);
   case ISD::ATOMIC_FENCE:
@@ -12266,6 +12273,39 @@ SDValue RISCVTargetLowering::LowerINTRINSIC_VOID(SDValue Op,
     return getVCIXISDNodeVOID(Op, DAG, RISCVISD::SF_VC_VVW_SE);
   case Intrinsic::riscv_sf_vc_fvw_se:
     return getVCIXISDNodeVOID(Op, DAG, RISCVISD::SF_VC_FVW_SE);
+
+  case Intrinsic::set_loop_iterations: {
+    if (!Subtarget.hasVendorXCVhwlp())
+      break;
+
+    SDLoc DL(Op);
+    SDValue Chain = Op.getOperand(0);
+    SDValue Count = Op.getOperand(2);
+
+    if (auto *C = dyn_cast<ConstantSDNode>(Count)) {
+      uint64_t Value = C->getZExtValue();
+
+      if (Value != 0 && isUInt<12>(Value)) {
+ 
+        SDValue TargetCount =
+            DAG.getTargetConstant(Value, DL, MVT::i32);
+
+        MachineSDNode *Setup =
+            DAG.getMachineNode(RISCV::PseudoCVHWLoopSetupImm,
+                              DL, MVT::Other,
+                              TargetCount, Chain);
+
+        return SDValue(Setup, 0);
+      }
+    }
+
+    MachineSDNode *Setup =
+        DAG.getMachineNode(RISCV::PseudoCVHWLoopSetup,
+                          DL, MVT::Other,
+                          Count, Chain);
+
+    return SDValue(Setup, 0);
+  }
   }
 
   return lowerVectorIntrinsicScalars(Op, DAG, Subtarget);
@@ -14968,6 +15008,36 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
   switch (N->getOpcode()) {
   default:
     llvm_unreachable("Don't know how to custom type legalize this operation!");
+  case ISD::INTRINSIC_W_CHAIN: {
+    if (!Subtarget.hasVendorXCVhwlp())
+      break;
+
+    if (N->getNumOperands() < 3)
+      break;
+
+    auto *IID = dyn_cast<ConstantSDNode>(N->getOperand(1));
+    if (!IID || IID->getZExtValue() != Intrinsic::loop_decrement)
+      break;
+
+    auto *Dec = dyn_cast<ConstantSDNode>(N->getOperand(2));
+    if (!Dec || Dec->getZExtValue() != 1)
+      report_fatal_error(
+          "XCV hardware loop requires decrement value 1");
+
+    SDLoc DL(N);
+    SDValue Chain = N->getOperand(0);
+
+    // Replace the illegal i1 result with a legal RV32 GPR result.
+    SDVTList VTs = DAG.getVTList(MVT::i32, MVT::Other);
+
+    MachineSDNode *End =
+        DAG.getMachineNode(RISCV::PseudoCVHWLoopEnd,
+                          DL, VTs, Chain);
+
+    Results.push_back(SDValue(End, 0));
+    Results.push_back(SDValue(End, 1));
+    return;
+  }
   case ISD::STRICT_FP_TO_SINT:
   case ISD::STRICT_FP_TO_UINT:
   case ISD::FP_TO_SINT:
