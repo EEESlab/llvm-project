@@ -479,6 +479,10 @@ void RISCVPassConfig::addIRPasses() {
     addPass(createRISCVGatherScatterLoweringPass());
     addPass(createInterleavedAccessPass());
     addPass(createRISCVCodeGenPrepareLegacyPass());
+
+    // Convert eligible loops to llvm.set.loop.iterations and
+    // llvm.loop.decrement before instruction selection.
+    addPass(createHardwareLoopsLegacyPass());
   }
 
   TargetPassConfig::addIRPasses();
@@ -581,6 +585,8 @@ void RISCVPassConfig::addPreEmitPass() {
   // basic block alignment. It must be done before Branch Relaxation to
   // prevent the adjusted offset exceeding the branch range.
   addPass(createRISCVIndirectBranchTrackingPass());
+  // Create hardware loops for targets supporting them.
+  addPass(createRISCVHardwareLoopsPass());
   addPass(&BranchRelaxationPassID);
   addPass(createRISCVMakeCompressibleOptPass());
 }

@@ -1455,6 +1455,14 @@ def HasVendorXCVbi
     : Predicate<"Subtarget->hasVendorXCVbi()">,
       AssemblerPredicate<(all_of FeatureVendorXCVbi),
                          "'XCVbi' (CORE-V Immediate Branching)">;
+
+def FeatureVendorXCVhwlp
+    : RISCVExtension<1, 0, "CORE-V hardware-loop instructions">;
+def HasVendorXCVhwlp
+    : Predicate<"Subtarget->hasVendorXCVhwlp()">,
+      AssemblerPredicate<(all_of FeatureVendorXCVhwlp),
+                         "'XCVhwlp' (CORE-V hardware loops)">;
+
 // MIPS Extensions
 
 def FeatureVendorXMIPSCMov

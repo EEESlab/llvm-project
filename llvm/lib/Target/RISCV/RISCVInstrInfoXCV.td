@@ -48,6 +48,39 @@ def trailing1sPlus1 : SDNodeXForm<imm, [{
                           SDLoc(N), N->getValueType(0));
 }]>;
 
+def CVHWLoopIDAsmOperand : AsmOperandClass {
+  let Name = "CVHWLoopID";
+  let PredicateMethod = "isUImm<1>";
+  let RenderMethod = "addImmOperands";
+}
+
+def cv_hwloop_id : Operand<i32> {
+  let ParserMatchClass = CVHWLoopIDAsmOperand;
+  let DecoderMethod = "decodeUImmOperand<1>";
+}
+
+def CVHWLoopUImm12AsmOperand : AsmOperandClass {
+  let Name = "CVHWLoopUImm12";
+  let PredicateMethod = "isUImm<12>";
+  let RenderMethod = "addImmOperands";
+}
+
+def cv_hwloop_uimm12 : Operand<i32> {
+  let ParserMatchClass = CVHWLoopUImm12AsmOperand;
+  let DecoderMethod = "decodeUImmOperand<12>";
+}
+
+def CVHWLoopUImm5AsmOperand : AsmOperandClass {
+  let Name = "CVHWLoopUImm5";
+  let PredicateMethod = "isUImm<5>";
+  let RenderMethod = "addImmOperands";
+}
+
+def cv_hwloop_uimm5 : Operand<i32> {
+  let ParserMatchClass = CVHWLoopUImm5AsmOperand;
+  let DecoderMethod = "decodeUImmOperand<5>";
+}
+
 //===----------------------------------------------------------------------===//
 // Instruction Class Templates
 //===----------------------------------------------------------------------===//
@@ -334,6 +367,51 @@ class CVStore_rr<bits<3> funct3, bits<7> funct7, string opcodestr>
 class CVLoad_ri<bits<3> funct3, string opcodestr>
     : RVInstI<funct3, OPC_CUSTOM_0, (outs GPR:$rd),
       (ins GPRMem:$rs1, simm12_lo:$imm12), opcodestr, "$rd, ${imm12}(${rs1})">;
+
+class CVHWLoopInst<bits<4> funct4, dag outs, dag ins,
+                   string mnemonic, string operands>
+    : RVInst<outs, ins, mnemonic, operands, [], InstFormatOther> {
+  bits<12> imm12;
+  bits<5> rs1;
+  bit loopid;
+
+  let Inst{31-20} = imm12;
+  let Inst{19-15} = rs1;
+  let Inst{14-12} = 0b100;
+  let Inst{11-8} = funct4;
+  let Inst{7} = loopid;
+  let Inst{6-0} = OPC_CUSTOM_1.Value;
+
+  let hasSideEffects = 1;
+  let mayLoad = 0;
+  let mayStore = 0;
+}
+
+class CVHWLoopImm<bits<4> funct4, string mnemonic>
+    : CVHWLoopInst<funct4, (outs),
+                   (ins cv_hwloop_id:$loopid, cv_hwloop_uimm12:$imm12),
+                   mnemonic, "$loopid, $imm12"> {
+  let rs1 = 0;
+}
+
+class CVHWLoopReg<bits<4> funct4, string mnemonic>
+    : CVHWLoopInst<funct4, (outs),
+                   (ins cv_hwloop_id:$loopid, GPR:$rs1),
+                   mnemonic, "$loopid, $rs1"> {
+  let imm12 = 0;
+}
+
+class CVHWLoopSetupImm<bits<4> funct4, string mnemonic>
+    : CVHWLoopInst<funct4, (outs),
+                   (ins cv_hwloop_id:$loopid, cv_hwloop_uimm12:$imm12,
+                        cv_hwloop_uimm5:$rs1),
+                   mnemonic, "$loopid, $imm12, $rs1">;
+
+class CVHWLoopSetupReg<bits<4> funct4, string mnemonic>
+    : CVHWLoopInst<funct4, (outs),
+                   (ins cv_hwloop_id:$loopid, GPR:$rs1,
+                        cv_hwloop_uimm12:$imm12),
+                   mnemonic, "$loopid, $rs1, $imm12">;
 
 //===----------------------------------------------------------------------===//
 // Instructions
@@ -639,6 +717,37 @@ let Predicates = [HasVendorXCVelw, IsRV32], hasSideEffects = 1,
   def PseudoCV_ELW : PseudoLoad<"cv.elw">;
   // Event load
   def CV_ELW : CVLoad_ri<0b011, "cv.elw">;
+}
+
+
+let Predicates = [HasVendorXCVhwlp, IsRV32] in {
+  // Hardware loops instructions
+  def CV_STARTI : CVHWLoopImm<0b0000, "cv.starti">;
+  def CV_START  : CVHWLoopReg<0b0001, "cv.start">;
+  def CV_ENDI   : CVHWLoopImm<0b0010, "cv.endi">;
+  def CV_END    : CVHWLoopReg<0b0011, "cv.end">;
+  def CV_COUNTI : CVHWLoopImm<0b0100, "cv.counti">;
+  def CV_COUNT  : CVHWLoopReg<0b0101, "cv.count">;
+  def CV_SETUPI : CVHWLoopSetupImm<0b0110, "cv.setupi">;
+  def CV_SETUP  : CVHWLoopSetupReg<0b0111, "cv.setup">;
+
+  // Hardware loops pseudos (used for automatic inference)
+  let isPseudo = 1,
+      isCodeGenOnly = 1,
+      hasSideEffects = 1,
+      mayLoad = 0,
+      mayStore = 0 in {
+    def PseudoCVHWLoopSetup :
+        Pseudo<(outs), (ins GPR:$count), []>;
+    def PseudoCVHWLoopSetupImm :
+        Pseudo<(outs), (ins cv_hwloop_uimm12:$count), []>;
+    def PseudoCVHWLoopEnd :
+        Pseudo<(outs GPR:$continue), (ins), []>;
+    def PseudoCVHWLoopNoRVCBegin :
+        Pseudo<(outs), (ins), []>;
+    def PseudoCVHWLoopNoRVCEnd :
+        Pseudo<(outs), (ins), []>;
+  }
 }
 
 } // DecoderNamespace = "XCV"
