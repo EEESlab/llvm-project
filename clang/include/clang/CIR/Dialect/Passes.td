@@ -161,4 +161,18 @@ def LoweringPrepare : Pass<"cir-lowering-prepare"> {
   let dependentDialects = ["cir::CIRDialect"];
 }
 
+def CIRUnrollByTwo : Pass<"cir-unroll-by-two", "cir::FuncOp"> {
+  let summary = "Unroll simple cir.for loops by a factor of two";
+  let description = [{
+    Conservatively rewrites a simple single-block cir.for loop into:
+      - a main loop whose body is body; step; body
+      - a tail cir.if that executes the leftover iteration once
+
+    This first version only handles single-block cond/body/step regions and
+    canonical step regions ending in a cir.store to the induction variable.
+  }];
+  let constructor = "mlir::createCIRUnrollByTwoPass()";
+  let dependentDialects = ["cir::CIRDialect"];
+}
+
 #endif // CLANG_CIR_DIALECT_PASSES_TD
