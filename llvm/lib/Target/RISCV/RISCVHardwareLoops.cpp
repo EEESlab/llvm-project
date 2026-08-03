@@ -77,12 +77,16 @@ using namespace llvm;
 STATISTIC(NumHardwareLoops, "Number of CORE-V hardware loops generated");
 
 static cl::opt<bool>
-    DisableHardwareLoops("riscv-disable-hwloops", cl::Hidden, cl::init(false),
+    DisableHardwareLoops("hwloops-disable", cl::Hidden, cl::init(false),
                          cl::desc("Disable CORE-V hardware loop generation"));
 
 static cl::opt<bool> ForceLongSetup(
-    "riscv-hwloop-force-long-setup", cl::Hidden, cl::init(false),
+    "cvhwloop-force-long-setup", cl::Hidden, cl::init(false),
     cl::desc("Always use cv.starti/cv.endi/cv.count instead of cv.setup"));
+
+static cl::opt<bool> PadShortBodies(
+    "cvhwloop-pad-short-bodies", cl::Hidden, cl::init(false),
+    cl::desc("Pad hardware loop bodies below the minimum length with nops"));
 
 //===----------------------------------------------------------------------===//
 // Encoding parameters
@@ -553,6 +557,20 @@ static void placeExitAfterLatch(CVHWLoopCandidate &Candidate,
 // Emission
 //===----------------------------------------------------------------------===//
 
+/// Append nops to reach the minimum body length. They go at the end of the
+/// latch, before its terminators, so that lpend still falls at the exit label.
+static void padBody(const CVHWLoopCandidate &Candidate, unsigned PadCount,
+                    const DebugLoc &DL, const RISCVInstrInfo &TII) {
+  MachineBasicBlock &Latch = *Candidate.Latch;
+  MachineBasicBlock::iterator InsertPt = Latch.getFirstTerminator();
+
+  for (unsigned I = 0; I != PadCount; ++I)
+    BuildMI(Latch, InsertPt, DL, TII.get(RISCV::ADDI))
+        .addReg(RISCV::X0, RegState::Define)
+        .addReg(RISCV::X0)
+        .addImm(0);
+}
+
 /// Open the no-RVC region and return the point at which the setup sequence is
 /// emitted: after every other instruction in the preheader, and therefore
 /// directly before the header.
@@ -748,10 +766,20 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
     return false;
   }
 
+  unsigned PadCount = 0;
   if (Body->NumInstructions < CVMinBodyInstructions) {
-    LLVM_DEBUG(dbgs() << "  body has fewer than " << CVMinBodyInstructions
-                      << " instructions\n");
-    return false;
+    // A body below the minimum can be padded with nops, at the cost of one
+    // wasted cycle per iteration for each.
+    if (!PadShortBodies) {
+      LLVM_DEBUG(dbgs() << "  body has fewer than " << CVMinBodyInstructions
+                        << " instructions\n");
+      return false;
+    }
+
+    PadCount = CVMinBodyInstructions - Body->NumInstructions;
+    Body->NumInstructions += PadCount;
+    Body->SizeInBytes += PadCount * UncompressedInstrSize;
+    Body->BytesAfterInnerEnd += PadCount * UncompressedInstrSize;
   }
 
   // An outer loop can only be converted once its inner loop has been, since the
@@ -803,6 +831,9 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
   placeExitAfterLatch(Candidate, *TII);
   assert(Candidate.Preheader->getNextNode() == Candidate.Header &&
          "adjacency prediction disagreed with the resulting layout");
+
+  // Pad the loop bpdy (if needed).
+  padBody(Candidate, PadCount, DL, *TII);
 
   if (UseCombinedSetup)
     emitCombinedSetup(Candidate, *Count, LoopID, DL, *TII);
