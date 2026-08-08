@@ -280,7 +280,7 @@ bool RISCVAsmPrinter::EmitToStreamer(MCStreamer &S, const MCInst &Inst,
   if (CVHWLoopNoRVCSTI) {
     S.emitInstruction(Inst, *CVHWLoopNoRVCSTI);
     return false;
-  } 
+  }
   bool Res = RISCVRVC::compress(CInst, Inst, SubtargetInfo);
   if (Res)
     ++RISCVNumInstrsCompressed;
@@ -398,26 +398,39 @@ void RISCVAsmPrinter::resetCVHWLoopNoRVCState() {
 }
 
 void RISCVAsmPrinter::emitCVHWLoopNoRVCBegin() {
+  // Nested loops share one region: the inner markers sit inside the outer
+  // one, which already guarantees everything the inner loop needs.
   ++CVHWLoopNoRVCDepth;
   if (CVHWLoopNoRVCDepth != 1)
     return;
 
+  // Assembly options do not reach the code emitter on the direct-object path.
   CVHWLoopNoRVCSTI.emplace(getSubtargetInfo());
-  if (CVHWLoopNoRVCSTI->hasFeature(RISCV::FeatureStdExtZca))
-    CVHWLoopNoRVCSTI->ToggleFeature(RISCV::FeatureStdExtZca);
 
+  for (unsigned Feature :
+       {RISCV::FeatureStdExtZca, RISCV::FeatureStdExtZcb,
+        RISCV::FeatureStdExtZcd, RISCV::FeatureStdExtZcf,
+        RISCV::FeatureStdExtZcmp, RISCV::FeatureStdExtZcmt/*,
+        RISCV::FeatureRelax*/})
+    if (CVHWLoopNoRVCSTI->hasFeature(Feature))
+      CVHWLoopNoRVCSTI->ToggleFeature(Feature);
+
+
+  // lpstart must be word aligned. The padding precedes the setup sequence, so
+  // it shifts nothing the loop end offset was computed from, and it is emitted
+  // under the ambient subtarget because it lies outside the region.
   OutStreamer->emitCodeAlignment(Align(4), &getSubtargetInfo());
-  
+
+  // Emit .option push, .option norvc, and .option norelax
   RISCVTargetStreamer &RTS =
       static_cast<RISCVTargetStreamer &>(*OutStreamer->getTargetStreamer());
   RTS.emitDirectiveOptionPush();
   RTS.emitDirectiveOptionNoRVC();
-  RTS.emitDirectiveOptionNoRelax();
+  //RTS.emitDirectiveOptionNoRelax();
 }
 
 void RISCVAsmPrinter::emitCVHWLoopNoRVCEnd() {
-  assert(CVHWLoopNoRVCDepth &&
-         "unbalanced CV hardware-loop no-RVC end marker");
+  assert(CVHWLoopNoRVCDepth && "unbalanced CV hardware-loop no-RVC end marker");
 
   --CVHWLoopNoRVCDepth;
   if (CVHWLoopNoRVCDepth)
@@ -610,6 +623,8 @@ bool RISCVAsmPrinter::emitDirectiveOptionArch() {
 bool RISCVAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   STI = &MF.getSubtarget<RISCVSubtarget>();
 
+  // The regions do not span functions, and a previous function that failed to
+  // close one must not leak into this one.
   resetCVHWLoopNoRVCState();
 
   RISCVTargetStreamer &RTS = getTargetStreamer();
@@ -619,6 +634,8 @@ bool RISCVAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
   SetupMachineFunction(MF);
   emitFunctionBody();
 
+  // A region left open would silently disable compression for everything that
+  // follows,
   if (CVHWLoopNoRVCDepth != 0)
     report_fatal_error(
         "unbalanced CV hardware-loop no-RVC region");

@@ -319,6 +319,14 @@ public:
       }
       return false;
     }
+    case RISCV::CV_SETUP:
+    case RISCV::CV_SETUPI:
+      Target = Addr + (Inst.getOperand(2).getImm() << 2);
+      return true;
+    case RISCV::CV_STARTI:
+    case RISCV::CV_ENDI:
+      Target = Addr + (Inst.getOperand(1).getImm() << 2);
+      return true;
     }
 
     return false;

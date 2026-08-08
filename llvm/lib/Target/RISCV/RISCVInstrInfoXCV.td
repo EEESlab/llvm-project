@@ -83,20 +83,39 @@ def CVHWLoopUImm12AsmOperand : AsmOperandClass {
   let RenderMethod = "addImmOperands";
 }
 
+def CVHWLoopTargetUImm12AsmOperand : AsmOperandClass {
+  let Name = "CVHWLoopTargetUImm12";
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = "parseCVHWLoopTarget";
+  let PredicateMethod = "isCVHWLoopTarget<12>";
+}
+
 def cv_hwloop_uimm12 : Operand<i32> {
   let ParserMatchClass = CVHWLoopUImm12AsmOperand;
   let DecoderMethod = "decodeUImmOperand<12>";
 }
 
-def CVHWLoopUImm5AsmOperand : AsmOperandClass {
-  let Name = "CVHWLoopUImm5";
-  let PredicateMethod = "isUImm<5>";
-  let RenderMethod = "addImmOperands";
+def cv_hwloop_target_uimm12 : Operand<OtherVT> {
+  let ParserMatchClass = CVHWLoopTargetUImm12AsmOperand;
+  let EncoderMethod = "getCVHWLoopTargetUImm12OpValue";
+  let DecoderMethod = "decodeUImmOperand<12>";
+  let PrintMethod = "printCVHWLoopTarget";
+  let OperandType = "OPERAND_PCREL";
 }
 
-def cv_hwloop_uimm5 : Operand<i32> {
-  let ParserMatchClass = CVHWLoopUImm5AsmOperand;
+def CVHWLoopTargetUImm5AsmOperand : AsmOperandClass {
+  let Name = "CVHWLoopTargetUImm5";
+  let RenderMethod = "addImmOperands";
+  let ParserMethod = "parseCVHWLoopTarget";
+  let PredicateMethod = "isCVHWLoopTarget<5>";
+}
+
+def cv_hwloop_target_uimm5 : Operand<OtherVT> {
+  let ParserMatchClass = CVHWLoopTargetUImm5AsmOperand;
+  let EncoderMethod = "getCVHWLoopTargetUImm5OpValue";
   let DecoderMethod = "decodeUImmOperand<5>";
+  let PrintMethod = "printCVHWLoopTarget";
+  let OperandType = "OPERAND_PCREL";
 }
 
 //===----------------------------------------------------------------------===//
@@ -412,6 +431,13 @@ class CVHWLoopImm<bits<4> funct4, string mnemonic>
   let rs1 = 0;
 }
 
+class CVHWLoopTargetImm<bits<4> funct4, string mnemonic>
+    : CVHWLoopInst<funct4, (outs),
+                   (ins cv_hwloop_id:$loopid, cv_hwloop_target_uimm12:$imm12),
+                   mnemonic, "$loopid, $imm12"> {
+  let rs1 = 0;
+}
+
 class CVHWLoopReg<bits<4> funct4, string mnemonic>
     : CVHWLoopInst<funct4, (outs),
                    (ins cv_hwloop_id:$loopid, GPR:$rs1),
@@ -422,14 +448,15 @@ class CVHWLoopReg<bits<4> funct4, string mnemonic>
 class CVHWLoopSetupImm<bits<4> funct4, string mnemonic>
     : CVHWLoopInst<funct4, (outs),
                    (ins cv_hwloop_id:$loopid, cv_hwloop_uimm12:$imm12,
-                        cv_hwloop_uimm5:$rs1),
+                        cv_hwloop_target_uimm5:$rs1),
                    mnemonic, "$loopid, $imm12, $rs1">;
 
 class CVHWLoopSetupReg<bits<4> funct4, string mnemonic>
     : CVHWLoopInst<funct4, (outs),
                    (ins cv_hwloop_id:$loopid, GPR:$rs1,
-                        cv_hwloop_uimm12:$imm12),
+                        cv_hwloop_target_uimm12:$imm12),
                    mnemonic, "$loopid, $rs1, $imm12">;
+ 
 
 //===----------------------------------------------------------------------===//
 // Instructions
@@ -747,9 +774,9 @@ let Predicates = [HasVendorXCVelw, IsRV32], hasSideEffects = 1,
 
 let Predicates = [HasVendorXCVhwlp, IsRV32] in {
   // Hardware loops instructions
-  def CV_STARTI : CVHWLoopImm<0b0000, "cv.starti">;
+  def CV_STARTI : CVHWLoopTargetImm<0b0000, "cv.starti">;
   def CV_START  : CVHWLoopReg<0b0001, "cv.start">;
-  def CV_ENDI   : CVHWLoopImm<0b0010, "cv.endi">;
+  def CV_ENDI   : CVHWLoopTargetImm<0b0010, "cv.endi">;
   def CV_END    : CVHWLoopReg<0b0011, "cv.end">;
   def CV_COUNTI : CVHWLoopImm<0b0100, "cv.counti">;
   def CV_COUNT  : CVHWLoopReg<0b0101, "cv.count">;
@@ -757,21 +784,26 @@ let Predicates = [HasVendorXCVhwlp, IsRV32] in {
   def CV_SETUP  : CVHWLoopSetupReg<0b0111, "cv.setup">;
 
   // Hardware loops pseudos (used for automatic inference)
-  let isPseudo = 1,
-      isCodeGenOnly = 1,
-      hasSideEffects = 1,
-      mayLoad = 0,
-      mayStore = 0 in {
+  let isPseudo = 1, isCodeGenOnly = 1, hasSideEffects = 1,
+      mayLoad = 0, mayStore = 0 in {
+
+    let Size = 0 in
     def PseudoCVHWLoopSetup :
         Pseudo<(outs), (ins GPR:$count), []>;
+
+    let Size = 0 in
     def PseudoCVHWLoopSetupImm :
         Pseudo<(outs), (ins cv_hwloop_uimm12:$count), []>;
+
+    let Constraints = "$count_in = $count_out", Size = 4 in
     def PseudoCVHWLoopEnd :
-        Pseudo<(outs GPR:$continue), (ins), []>;
-    def PseudoCVHWLoopNoRVCBegin :
-        Pseudo<(outs), (ins), []>;
-    def PseudoCVHWLoopNoRVCEnd :
-        Pseudo<(outs), (ins), []>;
+        Pseudo<(outs GPR:$count_out), (ins GPR:$count_in), []>;
+
+    let isNotDuplicable = 1, Size = 2 in
+    def PseudoCVHWLoopNoRVCBegin : Pseudo<(outs), (ins), []>;
+
+    let isNotDuplicable = 1, Size = 0 in
+    def PseudoCVHWLoopNoRVCEnd : Pseudo<(outs), (ins), []>;
   }
 }
 

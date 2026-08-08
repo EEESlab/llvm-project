@@ -303,6 +303,8 @@ RelExpr RISCV::getRelExpr(const RelType type, const Symbol &s,
   case R_RISCV_SUB64:
     return RE_RISCV_ADD;
   case R_RISCV_32_PCREL:
+  case R_RISCV_CVPCREL_UI12:
+  case R_RISCV_CVPCREL_URS1:
     return R_PC;
   case R_RISCV_SET_ULEB128:
   case R_RISCV_SUB_ULEB128:
@@ -688,6 +690,16 @@ void RISCV::relocate(uint8_t *loc, const Relocation &rel, uint64_t val) const {
     else
       write32le(loc + 4, val);
     break;
+  case R_RISCV_CVPCREL_UI12:
+    checkAlignment(ctx, loc, val, 4, rel);
+    checkUInt(ctx, loc, val >> 2, 12, rel);
+    write32le(loc, (read32le(loc) & 0x000fffff) | ((val >> 2) << 20));
+    return;
+  case R_RISCV_CVPCREL_URS1:
+    checkAlignment(ctx, loc, val, 4, rel);
+    checkUInt(ctx, loc, val >> 2, 5, rel);
+    write32le(loc, (read32le(loc) & 0xfff07fff) | ((val >> 2) << 15));
+    return;
   default:
     llvm_unreachable("unknown relocation");
   }

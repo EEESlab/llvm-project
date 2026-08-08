@@ -28,11 +28,11 @@
 //
 //     .p2align 2
 //     .option push
+//     .option norelax
 //     .option norvc
 //
-// so that every PC-relative operand is known here and its range can be checked
-// rather than left to the assembler. The matching .option pop is emitted at the
-// top of the exit block, which is moved to directly follow the latch.
+// The matching .option pop is emitted at the top of the exit block, which is
+// moved to directly follow the latch.
 //
 // lpend is a fixed address, so the body must have a statically known byte size.
 // Branches are rejected outright rather than checked against the loop bounds,
@@ -53,12 +53,12 @@
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/Statistic.h"
+#include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
-#include "llvm/CodeGen/TargetOpcodes.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Alignment.h"
@@ -113,9 +113,9 @@ constexpr unsigned CVCountBits = 12;
 /// CV32E40P requires a hardware loop body of at least three instructions.
 constexpr unsigned CVMinBodyInstructions = 3;
 
-/// CV32E40P requires the outer loop end address to be at least eight bytes
-/// beyond the inner loop end address.
-constexpr unsigned CVMinNestedEndSeparation = 8;
+/// CV32E40P requires the outer loop end address to be at least one instruction
+/// between the inner and outer hardware loops.
+constexpr unsigned CVMinNestedEndSeparation = 1;
 
 /// Byte distance from each setup instruction to the header label. The setup
 /// sequence is last in the preheader and the header follows it directly, so the
@@ -133,8 +133,6 @@ constexpr unsigned CVStartiToHeader = 3 * UncompressedInstrSize;
 //===----------------------------------------------------------------------===//
 
 struct CVHWLoopCandidate {
-  MachineLoop *Loop = nullptr;
-
   MachineBasicBlock *Preheader = nullptr;
   MachineBasicBlock *Header = nullptr;
   MachineBasicBlock *Latch = nullptr;
@@ -147,6 +145,10 @@ struct CVHWLoopCandidate {
   /// The latch's second terminator. Null means the latch falls through
   /// to one of its successors.
   MachineInstr *UncondBranch = nullptr;
+
+  /// The software counter LSR left in the body, dead once the loop control is
+  /// gone. Excluded from the body measurement and erased on conversion.
+  SmallVector<MachineInstr *, 2> DeadCounter;
 
   /// Snapshot of the loop's blocks. MachineLoopInfo is invalidated as soon as
   /// the first backedge is removed, so it cannot be queried during conversion.
@@ -165,10 +167,14 @@ struct CVHWLoopBody {
   unsigned NumInstructions = 0;
   /// Encoded size of the body in bytes.
   uint64_t SizeInBytes = 0;
+  /// Upper bound on the instructions the linker could delete due to relaxations.
+  uint64_t RelaxableInstructions = 0;
   /// Set when an already-converted inner loop's end marker was seen.
   bool SawInnerEnd = false;
-  /// Bytes between the last inner end marker and the end of the body.
-  uint64_t BytesAfterInnerEnd = 0;
+  /// Instructions between the last inner end marker and the end of the body.
+  uint64_t InstructionsAfterInnerEnd = 0;
+  /// How many of those the linker could delete.
+  uint64_t RelaxableAfterInnerEnd = 0;
 };
 
 class RISCVHardwareLoops : public MachineFunctionPass {
@@ -268,8 +274,11 @@ static bool isHWLoopMarker(const MachineInstr &MI) {
 /// True if \p MI is a control instruction for \p Candidate.
 static bool isLoopControl(const MachineInstr &MI,
                           const CVHWLoopCandidate &Candidate) {
-  return &MI == Candidate.LoopEnd || &MI == Candidate.LoopBranch ||
-         &MI == Candidate.UncondBranch;
+  if (&MI == Candidate.LoopEnd || &MI == Candidate.LoopBranch ||
+      &MI == Candidate.UncondBranch)
+    return true;
+
+  return is_contained(Candidate.DeadCounter, &MI);
 }
 
 //===----------------------------------------------------------------------===//
@@ -333,6 +342,38 @@ static std::optional<unsigned> getBodyInstrSize(const MachineInstr &MI) {
 // Body measurement
 //===----------------------------------------------------------------------===//
 
+/// Return how many instruction the linker could delete from \p MI's relaxation
+/// sequence, counting only the instruction that anchors it so that a sequence
+/// is not counted more than once.
+///
+/// This is an upper bound: whether a given symbol is in range of gp, x0 or the
+/// thread pointer is a link-time property.
+static unsigned getRelaxableInstructions(const MachineInstr &MI) {
+  for (const MachineOperand &MO : MI.operands()) {
+    switch (MO.getTargetFlags()) {
+    // lui %hi(sym) + l/s %lo(sym), or auipc %pcrel_hi + l/s %pcrel_lo.
+    // Folding to gp or x0 removes the high half.
+    case RISCVII::MO_LO:
+    case RISCVII::MO_PCREL_LO:
+      return 1;
+
+    // lui %tprel_hi + add %tprel_add + l/s %tprel_lo. Relaxing to LE removes
+    // the lui and the add.
+    case RISCVII::MO_TPREL_LO:
+      return 2;
+
+    // auipc + l[dw] + addi + jalr. Relaxing to IE or LE removes the first two.
+    case RISCVII::MO_TLSDESC_CALL:
+      return 2;
+
+    default:
+      break;
+    }
+  }
+
+  return 0;
+}
+
 /// Walk the body in layout order, accumulating its size and the distance from
 /// any already-converted inner loop's end marker to the end of the body.
 ///
@@ -376,7 +417,7 @@ measureBody(const CVHWLoopCandidate &Candidate) {
       // preceding the latch is the one measured against.
       if (MI.getOpcode() == RISCV::PseudoCVHWLoopNoRVCEnd) {
         Body.SawInnerEnd = true;
-        Body.BytesAfterInnerEnd = 0;
+        Body.InstructionsAfterInnerEnd = 0;
         continue;
       }
 
@@ -387,8 +428,15 @@ measureBody(const CVHWLoopCandidate &Candidate) {
       }
 
       Body.SizeInBytes += *Size;
-      if (Body.SawInnerEnd)
-        Body.BytesAfterInnerEnd += *Size;
+
+      unsigned RelaxableInsns = getRelaxableInstructions(MI);
+      Body.RelaxableInstructions += RelaxableInsns;
+
+      if (Body.SawInnerEnd) {
+        ++Body.InstructionsAfterInnerEnd;
+        Body.RelaxableAfterInnerEnd += RelaxableInsns;
+      }
+
       if (*Size)
         ++Body.NumInstructions;
     }
@@ -423,7 +471,7 @@ static std::optional<CVHWLoopCount> getLoopCount(const MachineInstr &Setup) {
 
   switch (Setup.getOpcode()) {
   case RISCV::PseudoCVHWLoopSetupImm: {
-    assert(Setup.getNumExplicitOperands() >= 1 && Setup.getOperand(0).isImm() &&
+    assert(Setup.getNumExplicitOperands() == 1 && Setup.getOperand(0).isImm() &&
            "PseudoCVHWLoopSetupImm must take an immediate trip count");
 
     int64_t Value = Setup.getOperand(0).getImm();
@@ -438,7 +486,7 @@ static std::optional<CVHWLoopCount> getLoopCount(const MachineInstr &Setup) {
     return Count;
   }
   case RISCV::PseudoCVHWLoopSetup: {
-    assert(Setup.getNumExplicitOperands() >= 1 && Setup.getOperand(0).isReg() &&
+    assert(Setup.getNumExplicitOperands() == 1 && Setup.getOperand(0).isReg() &&
            "PseudoCVHWLoopSetup must take a register trip count");
 
     Count.Reg = Setup.getOperand(0).getReg();
@@ -474,11 +522,148 @@ static bool isCountClobberedAtSetupPoint(const CVHWLoopCandidate &Candidate,
   MachineBasicBlock::iterator I = std::next(Candidate.Setup->getIterator());
   MachineBasicBlock::iterator E = Candidate.Preheader->getFirstTerminator();
 
+  LLVM_DEBUG(dbgs() << "    count reg: " << printReg(Count.Reg, &TRI) << "\n");
   for (; I != E; ++I)
-    if (I->modifiesRegister(Count.Reg, &TRI))
+    if (I->modifiesRegister(Count.Reg, &TRI)) {
+      LLVM_DEBUG(dbgs() << "    clobbered by: " << *I);
       return true;
+    }
 
   return false;
+}
+
+/// Collect the software counter LSR built alongside the hardware loop.
+///
+/// LSR does not know that llvm.loop.decrement.reg returns its argument minus
+/// one, so it creates a second countdown on the same register and feeds the
+/// loop-carried phi from that instead of from the intrinsic. After conversion
+/// the hardware maintains lpcount and the countdown has no consumer.
+///
+/// It is removable exactly when the count register is dead on leaving the loop
+/// and nothing in the body reads it except the countdown itself.
+static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
+                                    const CVHWLoopCount &Count,
+                                    const TargetRegisterInfo &TRI) {
+  Candidate.DeadCounter.clear();
+
+  if (Count.IsImmediate) {
+    LLVM_DEBUG(dbgs() << "  counter: immediate count, nothing to remove\n");
+    return;
+  }
+
+  // LSR's countdown often runs on a copy of the count rather than the register
+  // cv.setup reads: the phi's incoming value is materialized in the preheader.
+  // Follow one copy to find the register the loop actually decrements.
+  Register CounterReg = Count.Reg;
+  MachineInstr *CounterInit = nullptr;
+
+  for (MachineInstr &MI : *Candidate.Preheader) {
+    if (&MI == Candidate.Setup)
+      continue;
+
+    const bool IsMove =
+        MI.isCopy() || (MI.getOpcode() == RISCV::ADDI &&
+                        MI.getNumExplicitOperands() == 3 &&
+                        MI.getOperand(2).isImm() &&
+                        MI.getOperand(2).getImm() == 0);
+
+    if (!IsMove || !MI.getOperand(0).isReg() || !MI.getOperand(1).isReg())
+      continue;
+
+    if (MI.getOperand(1).getReg() == Count.Reg) {
+      CounterReg = MI.getOperand(0).getReg();
+      CounterInit = &MI;
+      break;
+    }
+  }
+
+  // Anything after the loop may still read the count.
+  LivePhysRegs LPR(TRI);
+  LPR.addLiveOuts(*Candidate.Exit);
+  for (MachineInstr &MI : reverse(*Candidate.Exit))
+    LPR.stepBackward(MI);
+
+  if (LPR.contains(CounterReg)) {
+    LLVM_DEBUG(dbgs() << "  counter: " << printReg(CounterReg, &TRI)
+           << " is live out of " << printMBBReference(*Candidate.Exit) << "\n");
+    return;
+  }
+
+  for (MachineBasicBlock *MBB : Candidate.Blocks) {
+    for (MachineInstr &MI : *MBB) {
+      // Already erased by the conversion; not a use of the counter.
+      if (isLoopControl(MI, Candidate))
+        continue;
+
+      const bool Reads = MI.readsRegister(CounterReg, &TRI);
+      const bool Writes = MI.modifiesRegister(CounterReg, &TRI);
+
+      if (!Reads && !Writes)
+        continue;
+
+      // A read that is not part of the countdown is a real use.
+      if (Reads && !Writes) {
+        // A copy feeding the loop end pseudo is part of the counter chain, not
+        // a use: the allocator inserts it to satisfy the pseudo's tied operand,
+        // and it dies with the pseudo.
+        if (MI.isCopy() || MI.getOpcode() == RISCV::ADDI) {
+          Register Dst = MI.getOperand(0).getReg();
+          if (Candidate.LoopEnd->readsRegister(Dst, &TRI)) {
+            Candidate.DeadCounter.push_back(&MI);
+            continue;
+          }
+        }
+
+        LLVM_DEBUG(dbgs() << "  counter: real use: " << MI);
+        return;
+      }
+
+      // Only a plain single-def instruction can be dropped: anything with a
+      // second def or a side effect may be doing something else as well.
+      if (MI.getNumExplicitDefs() != 1 || MI.mayLoadOrStore() ||
+          MI.hasUnmodeledSideEffects()) {
+        LLVM_DEBUG(dbgs() << "  counter: unsuitable: " << MI);
+        return;
+      }
+
+      Candidate.DeadCounter.push_back(&MI);
+    }
+  }
+
+  // The copy that initialized the counter is dead once nothing reads the
+  // register it produced, whether or not a countdown was found in the body.
+  // Instructions about to be erased are not readers, which is what
+  // isLoopControl() covers: PseudoCVHWLoopEnd reads the counter through its
+  // tied operand.
+  if (CounterInit) {
+    bool ReadAnywhere = false;
+
+    if (LPR.contains(CounterReg)) {
+      LLVM_DEBUG(dbgs() << "  counter init: " << printReg(CounterReg, &TRI)
+                        << " is live out\n");
+      ReadAnywhere = true;
+    }
+
+    for (MachineInstr &MI : *Candidate.Preheader)
+      if (&MI != CounterInit && MI.readsRegister(CounterReg, &TRI)) {
+        LLVM_DEBUG(dbgs() << "  counter init: read in preheader by: " << MI);
+        ReadAnywhere = true;
+      }
+
+    for (MachineBasicBlock *MBB : Candidate.Blocks)
+      for (MachineInstr &MI : *MBB)
+        if (!isLoopControl(MI, Candidate) &&
+            MI.readsRegister(CounterReg, &TRI)) {
+          LLVM_DEBUG(dbgs() << "  counter init: read in body by: " << MI);
+          ReadAnywhere = true;
+        }
+
+    if (!ReadAnywhere)
+      Candidate.DeadCounter.push_back(CounterInit);
+  }
+
+  LLVM_DEBUG(dbgs() << "  counter: " << Candidate.DeadCounter.size()
+         << " instruction(s) to remove\n");
 }
 
 /// cv.setup[i]: lpstart is PC + 4 and lpend is the exit label.
@@ -492,8 +677,7 @@ static bool canUseCombinedSetup(const CVHWLoopBody &Body,
                                                  : CVSetupRegEndOffsetBits);
 }
 
-/// cv.starti + cv.endi + cv.count[i]. The start offset is a constant checked by
-/// the static_assert above; only the end offset depends on the body.
+/// cv.starti + cv.endi + cv.count[i].
 static bool canUseLongSetup(const CVHWLoopBody &Body) {
   return isEncodableWithOffset(CVEndiToHeader + Body.SizeInBytes, CVEndiOffsetBits);
 }
@@ -624,8 +808,7 @@ static void emitCombinedSetup(CVHWLoopCandidate &Candidate,
   closeSetupPoint(Candidate, InsertPt);
 }
 
-/// Emit cv.starti + cv.endi + cv.count/cv.counti, used when the loop end does
-/// not fit the five-bit field of cv.setupi/cv.setupi.
+/// Emit cv.starti + cv.endi + cv.count/cv.counti.
 static void emitLongSetup(CVHWLoopCandidate &Candidate,
                           const CVHWLoopCount &Count, unsigned LoopID,
                           const DebugLoc &DL, const RISCVInstrInfo &TII) {
@@ -669,7 +852,7 @@ static void emitLongSetup(CVHWLoopCandidate &Candidate,
 /// Return nullopt for an unsupported sequence, nullptr when there is no
 /// unconditional branch, and the branch otherwise.
 static std::optional<MachineInstr *>
-findLoopUncondBranchBranch(const CVHWLoopCandidate &Candidate) {
+findLoopUncondBranch(const CVHWLoopCandidate &Candidate) {
   MachineInstr *UncondBranch = nullptr;
 
   for (MachineInstr &MI : Candidate.Latch->terminators()) {
@@ -692,20 +875,25 @@ std::optional<CVHWLoopCandidate>
 RISCVHardwareLoops::analyzeLoop(MachineLoop &ML) const {
   CVHWLoopCandidate Candidate;
 
-  Candidate.Loop = &ML;
   Candidate.Preheader = ML.getLoopPreheader();
   Candidate.Header = ML.getHeader();
   Candidate.Latch = ML.getLoopLatch();
   Candidate.Exit = ML.getExitBlock();
 
   if (!Candidate.Preheader || !Candidate.Header || !Candidate.Latch ||
-      !Candidate.Exit)
+      !Candidate.Exit) {
+    LLVM_DEBUG(dbgs() << "Skipping " << printMBBReference(*ML.getHeader())
+                      << ": no preheader, no single latch, or no unique exit\n");
     return std::nullopt;
+  }
 
   // getExitBlock() gives the loop's unique exit, but the latch must also be the
   // exiting block for lpend to be meaningful.
-  if (!Candidate.Latch->isSuccessor(Candidate.Exit))
+  if (!Candidate.Latch->isSuccessor(Candidate.Exit)) {
+    LLVM_DEBUG(dbgs() << "Skipping " << printMBBReference(*Candidate.Header)
+                      << ": the latch is not the exiting block\n");
     return std::nullopt;
+  }
 
   Candidate.Setup = findUnique(*Candidate.Preheader, [](const MachineInstr &MI) {
     return MI.getOpcode() == RISCV::PseudoCVHWLoopSetup ||
@@ -715,8 +903,12 @@ RISCVHardwareLoops::analyzeLoop(MachineLoop &ML) const {
     return MI.getOpcode() == RISCV::PseudoCVHWLoopEnd;
   });
 
-  if (!Candidate.Setup || !Candidate.LoopEnd)
+  if (!Candidate.Setup || !Candidate.LoopEnd) {
+    LLVM_DEBUG(dbgs() << "Skipping " << printMBBReference(*Candidate.Header)
+                      << ": no unique setup pseudo in the preheader or end "
+                         "pseudo in the latch\n");
     return std::nullopt;
+  }
 
   assert(Candidate.LoopEnd->getNumExplicitDefs() == 1 &&
          Candidate.LoopEnd->getOperand(0).isReg() &&
@@ -734,12 +926,26 @@ RISCVHardwareLoops::analyzeLoop(MachineLoop &ML) const {
                 branchTargets(MI, Candidate.Exit));
       });
 
-  if (!Candidate.LoopBranch)
+  if (!Candidate.LoopBranch) {
+    LLVM_DEBUG(dbgs() << "Skipping " << printMBBReference(*Candidate.Header)
+                      << ": no unique latch branch reading the continue flag\n");
     return std::nullopt;
+  }
 
-  std::optional<MachineInstr *> UncondBranch = findLoopUncondBranchBranch(Candidate);
-  if (!UncondBranch)
+  std::optional<MachineInstr *> UncondBranch = findLoopUncondBranch(Candidate);
+  if (!UncondBranch) {
+    LLVM_DEBUG({
+      dbgs() << "Skipping " << printMBBReference(*Candidate.Header)
+             << ": unsupported second terminator in the latch\n";
+      for (MachineInstr &MI : Candidate.Latch->terminators())
+        dbgs() << "    terminator: " << MI
+               << "      uncond=" << MI.isUnconditionalBranch()
+               << " toHeader=" << branchTargets(MI, Candidate.Header)
+               << " toExit=" << branchTargets(MI, Candidate.Exit) << "\n";
+      dbgs() << "    exit=" << printMBBReference(*Candidate.Exit) << "\n";
+    });
     return std::nullopt;
+  }
 
   Candidate.UncondBranch = *UncondBranch;
 
@@ -760,14 +966,30 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
   LLVM_DEBUG(dbgs() << "Considering " << printMBBReference(*Candidate.Header)
                     << " for hardware loop " << LoopID << '\n');
 
+  std::optional<CVHWLoopCount> Count = getLoopCount(*Candidate.Setup);
+  if (!Count) {
+    LLVM_DEBUG(dbgs() << "  unusable trip count\n");
+    return false;
+  }
+
+  findDeadSoftwareCounter(Candidate, *Count, *TRI);
+
   std::optional<CVHWLoopBody> Body = measureBody(Candidate);
   if (!Body) {
     LLVM_DEBUG(dbgs() << "  body is not a legal hardware loop body\n");
     return false;
   }
 
+  if (Body->RelaxableInstructions)
+    LLVM_DEBUG(dbgs() << "  body has " << Body->RelaxableInstructions
+                      << " instructions the linker could delete\n");
+
   unsigned PadCount = 0;
-  if (Body->NumInstructions < CVMinBodyInstructions) {
+  const unsigned MinInstructions =
+      Body->NumInstructions > Body->RelaxableInstructions
+          ? Body->NumInstructions - Body->RelaxableInstructions
+          : 0;
+  if (MinInstructions < CVMinBodyInstructions) {
     // A body below the minimum can be padded with nops, at the cost of one
     // wasted cycle per iteration for each.
     if (!PadShortBodies) {
@@ -776,24 +998,24 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
       return false;
     }
 
-    PadCount = CVMinBodyInstructions - Body->NumInstructions;
+    PadCount = CVMinBodyInstructions - MinInstructions;
     Body->NumInstructions += PadCount;
+    Body->InstructionsAfterInnerEnd += PadCount;
     Body->SizeInBytes += PadCount * UncompressedInstrSize;
-    Body->BytesAfterInnerEnd += PadCount * UncompressedInstrSize;
   }
 
   // An outer loop can only be converted once its inner loop has been, since the
   // separation is measured against the inner loop's end marker.
-  if (IsOuter && (!Body->SawInnerEnd ||
-                  Body->BytesAfterInnerEnd < CVMinNestedEndSeparation)) {
-    LLVM_DEBUG(dbgs() << "  insufficient separation from the inner loop end\n");
-    return false;
-  }
+  if (IsOuter) {
+    const uint64_t MinAfterInnerEnd =
+        Body->InstructionsAfterInnerEnd > Body->RelaxableAfterInnerEnd
+            ? Body->InstructionsAfterInnerEnd - Body->RelaxableAfterInnerEnd
+            : 0;
 
-  std::optional<CVHWLoopCount> Count = getLoopCount(*Candidate.Setup);
-  if (!Count) {
-    LLVM_DEBUG(dbgs() << "  unusable trip count\n");
-    return false;
+    if (!Body->SawInnerEnd || MinAfterInnerEnd < CVMinNestedEndSeparation) {
+      LLVM_DEBUG(dbgs() << "  insufficient separation from the inner loop end\n");
+      return false;
+    }
   }
 
   if (isCountClobberedAtSetupPoint(Candidate, *Count, *TRI)) {
@@ -832,7 +1054,7 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
   assert(Candidate.Preheader->getNextNode() == Candidate.Header &&
          "adjacency prediction disagreed with the resulting layout");
 
-  // Pad the loop bpdy (if needed).
+  // Pad the loop body (if needed).
   padBody(Candidate, PadCount, DL, *TII);
 
   if (UseCombinedSetup)
@@ -849,6 +1071,9 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
   Candidate.LoopEnd->eraseFromParent();
   Candidate.Setup->eraseFromParent();
 
+  for (MachineInstr *MI : Candidate.DeadCounter)
+    MI->eraseFromParent();
+
   Candidate.Latch->removeSuccessor(Candidate.Header,
                                    /*NormalizeSuccProbs=*/ true);
 
@@ -860,11 +1085,15 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
 }
 
 bool RISCVHardwareLoops::processLoopTree(MachineLoop &ML) {
+  LLVM_DEBUG(dbgs() << "  processLoopTree: subloops="
+                    << ML.getSubLoops().size() << "\n");
   ArrayRef<MachineLoop *> SubLoops = ML.getSubLoops();
 
   // An innermost loop uses hardware-loop register set 0.
   if (SubLoops.empty()) {
     std::optional<CVHWLoopCandidate> Candidate = analyzeLoop(ML);
+    LLVM_DEBUG(dbgs() << "  analyzeLoop returned "
+                      << (Candidate ? "a candidate" : "nullopt") << "\n");
     return Candidate && convertCandidate(*Candidate, /*LoopID=*/ 0,
                                          /*IsOuter=*/ false);
   }
@@ -912,6 +1141,8 @@ bool RISCVHardwareLoops::processLoopTree(MachineLoop &ML) {
 
 bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   const RISCVSubtarget &ST = MF.getSubtarget<RISCVSubtarget>();
+  LLVM_DEBUG(dbgs() << "RISCVHardwareLoops pass: " << MF.getName() << "\n");
+
   if (!ST.hasVendorXCVhwlp())
     return false;
 
@@ -926,6 +1157,7 @@ bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   // Snapshot the top-level loops: MachineLoopInfo is required but deliberately
   // not preserved, and becomes stale as soon as a backedge is removed.
   SmallVector<MachineLoop *, 8> TopLevelLoops(MLI.begin(), MLI.end());
+  LLVM_DEBUG(dbgs() << "  top-level loops: " << TopLevelLoops.size() << "\n");
 
   bool Changed = false;
   for (MachineLoop *TopLevelLoop : TopLevelLoops)

@@ -128,6 +128,15 @@ public:
   unsigned getRlistS0OpValue(const MCInst &MI, unsigned OpNo,
                              SmallVectorImpl<MCFixup> &Fixups,
                              const MCSubtargetInfo &STI) const;
+  uint64_t getCVHWLoopTargetOpValue(const MCInst &MI, unsigned OpNo,
+                                    SmallVectorImpl<MCFixup> &Fixups,
+                                    RISCV::Fixups Kind) const;
+  uint64_t getCVHWLoopTargetUImm12OpValue(const MCInst &MI, unsigned OpNo,
+                                          SmallVectorImpl<MCFixup> &Fixups,
+                                          const MCSubtargetInfo &STI) const;
+  uint64_t getCVHWLoopTargetUImm5OpValue(const MCInst &MI, unsigned OpNo,
+                                         SmallVectorImpl<MCFixup> &Fixups,
+                                         const MCSubtargetInfo &STI) const;
 };
 } // end anonymous namespace
 
@@ -153,6 +162,8 @@ static void addFixup(SmallVectorImpl<MCFixup> &Fixups, uint32_t Offset,
   case RISCV::fixup_riscv_qc_e_branch:
   case RISCV::fixup_riscv_qc_e_call_plt:
   case RISCV::fixup_riscv_nds_branch_10:
+  case RISCV::fixup_riscv_cv_hwloop_uimm12:
+  case RISCV::fixup_riscv_cv_hwloop_uimm5:
     PCRel = true;
   }
   Fixups.push_back(MCFixup::create(Offset, Value, Kind, PCRel));
@@ -992,6 +1003,34 @@ RISCVMCCodeEmitter::getRlistS0OpValue(const MCInst &MI, unsigned OpNo,
   assert(Imm >= 4 && "EABI is currently not implemented");
   assert(Imm != RISCVZC::RA && "Rlist operand must include s0");
   return Imm;
+}
+
+uint64_t RISCVMCCodeEmitter::getCVHWLoopTargetOpValue(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    RISCV::Fixups Kind) const {
+  const MCOperand &MO = MI.getOperand(OpNo);
+
+  // A literal offset in hand-written assembly,
+  if (MO.isImm())
+    return MO.getImm();
+
+  assert(MO.isExpr() && "hardware loop target must be a symbol");
+  addFixup(Fixups, 0, MO.getExpr(), Kind);
+  return 0;
+}
+
+uint64_t RISCVMCCodeEmitter::getCVHWLoopTargetUImm12OpValue(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
+  return getCVHWLoopTargetOpValue(MI, OpNo, Fixups,
+                                  RISCV::fixup_riscv_cv_hwloop_uimm12);
+}
+
+uint64_t RISCVMCCodeEmitter::getCVHWLoopTargetUImm5OpValue(
+    const MCInst &MI, unsigned OpNo, SmallVectorImpl<MCFixup> &Fixups,
+    const MCSubtargetInfo &STI) const {
+  return getCVHWLoopTargetOpValue(MI, OpNo, Fixups,
+                                  RISCV::fixup_riscv_cv_hwloop_uimm5);
 }
 
 #include "RISCVGenMCCodeEmitter.inc"

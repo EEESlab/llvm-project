@@ -34,6 +34,8 @@ public:
                     raw_ostream &O);
   void printBranchOperand(const MCInst *MI, uint64_t Address, unsigned OpNo,
                           const MCSubtargetInfo &STI, raw_ostream &O);
+  void printCVHWLoopTarget(const MCInst *MI, uint64_t Address, unsigned OpNo,
+                           const MCSubtargetInfo &STI, raw_ostream &O);
   void printCSRSystemRegister(const MCInst *MI, unsigned OpNo,
                               const MCSubtargetInfo &STI, raw_ostream &O);
   void printFenceArg(const MCInst *MI, unsigned OpNo,

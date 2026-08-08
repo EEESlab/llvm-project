@@ -128,6 +128,27 @@ void RISCVInstPrinter::printBranchOperand(const MCInst *MI, uint64_t Address,
   }
 }
 
+void RISCVInstPrinter::printCVHWLoopTarget(const MCInst *MI, uint64_t Address,
+                                           unsigned OpNo,
+                                           const MCSubtargetInfo &STI,
+                                           raw_ostream &O) {
+  // Do not print the numeric target address when symbolizing.
+  if (SymbolizeOperands)
+    return;
+  const MCOperand &MO = MI->getOperand(OpNo);
+  if (!MO.isImm())
+    return printOperand(MI, OpNo, STI, O);
+  if (PrintBranchImmAsAddress) {
+    // The hardware computes the target as PC + (imm << 2).
+    uint64_t Target = Address + (MO.getImm() << 2);
+    if (!STI.hasFeature(RISCV::Feature64Bit))
+      Target &= 0xffffffff;
+    markup(O, Markup::Target) << formatHex(Target);
+  } else {
+    markup(O, Markup::Target) << formatImm(MO.getImm());
+  }
+}
+
 void RISCVInstPrinter::printCSRSystemRegister(const MCInst *MI, unsigned OpNo,
                                               const MCSubtargetInfo &STI,
                                               raw_ostream &O) {

@@ -66,6 +66,12 @@ enum Fixups {
   // 10-bit fixup for symbol references in the xandesperf branch instruction
   fixup_riscv_nds_branch_10,
 
+  // CORE-V specific fixups
+  // 12-bit PC-relative loop start/end offset in bits 31-20, in four-byte units
+  fixup_riscv_cv_hwloop_uimm12,
+  // 5-bit PC-relative loop end offset in bits 19-15, in four-byte units
+  fixup_riscv_cv_hwloop_uimm5,
+
   // Used as a sentinel, must be the last
   fixup_riscv_invalid,
   NumTargetFixupKinds = fixup_riscv_invalid - FirstTargetFixupKind

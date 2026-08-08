@@ -62,6 +62,9 @@ private:
                                          MachineBasicBlock::iterator MBBI);
   bool expandVendorXcvsimdShuffle(MachineBasicBlock &MBB,
                                   MachineBasicBlock::iterator MBBI);
+  bool expandCVHWLoopEnd(MachineBasicBlock &MBB,
+                         MachineBasicBlock::iterator MBBI);
+
 #ifndef NDEBUG
   unsigned getInstSizeInBytes(const MachineFunction &MF) const {
     unsigned Size = 0;
@@ -105,6 +108,21 @@ bool RISCVExpandPseudo::expandMBB(MachineBasicBlock &MBB) {
   }
 
   return Modified;
+}
+
+bool RISCVExpandPseudo::expandCVHWLoopEnd(MachineBasicBlock &MBB,
+                                          MachineBasicBlock::iterator MBBI) {
+  // The software countdown for a loop that was not converted. The latch branch
+  // already tests the result against zero.
+  Register Dst = MBBI->getOperand(0).getReg();
+  Register Src = MBBI->getOperand(1).getReg();
+  assert(Dst == Src && "PseudoCVHWLoopEnd operands must be tied");
+
+  BuildMI(MBB, MBBI, MBBI->getDebugLoc(), TII->get(RISCV::ADDI), Dst)
+      .addReg(Src)
+      .addImm(-1);
+  MBBI->eraseFromParent();
+  return true;
 }
 
 bool RISCVExpandPseudo::expandMI(MachineBasicBlock &MBB,
@@ -196,6 +214,26 @@ bool RISCVExpandPseudo::expandMI(MachineBasicBlock &MBB,
     return expandPseudoReadVLENBViaVSETVLIX0(MBB, MBBI);
   case RISCV::CV_SHUFFLE_SCI_B_PSEUDO:
     return expandVendorXcvsimdShuffle(MBB, MBBI);
+  case RISCV::PseudoCVHWLoopEnd:
+    return expandCVHWLoopEnd(MBB, MBBI);
+  case RISCV::PseudoCVHWLoopSetup: {
+    // Copy the trip count into the counter register the loop counts down.
+//    Register Dst = MBBI->getOperand(0).getReg();
+//    Register Src = MBBI->getOperand(1).getReg();
+//    BuildMI(MBB, MBBI, DL, TII->get(RISCV::ADDI), Dst).addReg(Src).addImm(0);
+    MBBI->eraseFromParent();
+    return true;
+  }
+  case RISCV::PseudoCVHWLoopSetupImm: {
+/*					      
+    DebugLoc DL = MBBI->getDebugLoc();					      
+    Register Dst = MBBI->getOperand(0).getReg();
+    int64_t Count = MBBI->getOperand(1).getImm();
+    TII->movImm(MBB, MBBI, DL, Dst, Count, MachineInstr::NoFlags);
+    */
+    MBBI->eraseFromParent();
+    return true;
+  }
   }
 
   return false;

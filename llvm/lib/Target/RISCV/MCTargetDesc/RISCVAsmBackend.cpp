@@ -98,6 +98,10 @@ MCFixupKindInfo RISCVAsmBackend::getFixupKindInfo(MCFixupKind Kind) const {
 
       // Andes fixups
       {"fixup_riscv_nds_branch_10", 0, 32, 0},
+
+      // CORE-V fixups
+      {"fixup_riscv_cv_hwloop_uimm12", 20, 12, 0},
+      {"fixup_riscv_cv_hwloop_uimm5", 15, 5, 0},
   };
   static_assert((std::size(Infos)) == RISCV::NumTargetFixupKinds,
                 "Not all fixup kinds added to Infos array");
@@ -663,6 +667,21 @@ static uint64_t adjustFixupValue(const MCFixup &Fixup, uint64_t Value,
     // Inst{29-25} = Hi5;
     // Inst{11-8} = Lo4;
     Value = (Sbit << 31) | (Hi5 << 25) | (Lo4 << 8);
+    return Value;
+  }
+  case RISCV::fixup_riscv_cv_hwloop_uimm12:
+  case RISCV::fixup_riscv_cv_hwloop_uimm5: {
+    if (Value & 0x3)
+      Ctx.reportError(Fixup.getLoc(), "loop offset must be a multiple of 4");
+
+    Value >>= 2;
+
+    unsigned Bits =
+        Fixup.getKind() == MCFixupKind(RISCV::fixup_riscv_cv_hwloop_uimm12)
+            ? 12 : 5;
+    if (!isUIntN(Bits, Value))
+      Ctx.reportError(Fixup.getLoc(), "loop offset out of range");
+
     return Value;
   }
   }

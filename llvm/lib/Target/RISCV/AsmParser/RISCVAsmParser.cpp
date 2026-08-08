@@ -230,6 +230,8 @@ class RISCVAsmParser : public MCTargetAsmParser {
     return parseZcmpStackAdj(Operands, /*ExpectNegative*/ true);
   }
 
+  ParseStatus parseCVHWLoopTarget(OperandVector &Operands);
+
   bool parseOperand(OperandVector &Operands, StringRef Mnemonic);
   bool parseExprWithSpecifier(const MCExpr *&Res, SMLoc &E);
   bool parseDataExpr(const MCExpr *&Res) override;
@@ -1032,6 +1034,19 @@ public:
 
   bool isSImm32Lsb0() const {
     return isSImmPred([](int64_t Imm) { return isShiftedInt<31, 1>(Imm); });
+  }
+
+  // A hardware loop start or end operand. Either a literal offset, already a
+  // count of four-byte units, or a symbol left to the fixup.
+  template <unsigned N> bool isCVHWLoopTarget() const {
+    if (!isExpr())
+      return false;
+
+    int64_t Imm;
+    if (!evaluateConstantExpr(getExpr(), Imm))
+      return true;
+
+    return isUInt<N>(Imm);
   }
 
   /// getStartLoc - Gets location of the first token of this operand
@@ -3015,6 +3030,10 @@ ParseStatus RISCVAsmParser::parseZcmpStackAdj(OperandVector &Operands,
   Operands.push_back(RISCVOperand::createStackAdj(StackAdj, S));
   Lex();
   return ParseStatus::Success;
+}
+
+ParseStatus RISCVAsmParser::parseCVHWLoopTarget(OperandVector &Operands) {
+  return parseExpression(Operands);
 }
 
 /// Looks at a token type and creates the relevant operand from this

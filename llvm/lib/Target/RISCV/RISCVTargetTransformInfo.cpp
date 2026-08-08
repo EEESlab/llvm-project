@@ -71,7 +71,7 @@ bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
     return Profitable;
   };
 
-  HWLoopInfo.CounterInReg = false;
+  HWLoopInfo.CounterInReg = true;
   HWLoopInfo.PerformEntryTest = false;
   HWLoopInfo.IsNestingLegal = true;
 
