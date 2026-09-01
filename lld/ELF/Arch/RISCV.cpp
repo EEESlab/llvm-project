@@ -442,6 +442,12 @@ void RISCV::scanSectionImpl(InputSectionBase &sec, Relocs<RelTy> rels) {
       expr = RE_RISCV_LEB128;
       break;
 
+    // CORE-V relocations:
+    case R_RISCV_CVPCREL_UI12:
+    case R_RISCV_CVPCREL_URS1:
+      expr = R_PC;
+      break;
+
     case R_RISCV_VENDOR: {
       auto it1 = it;
       ++it1;
