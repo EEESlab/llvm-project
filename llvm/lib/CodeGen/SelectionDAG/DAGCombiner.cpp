@@ -21138,6 +21138,13 @@ static bool shouldCombineToPostInc(SDNode *N, SDValue Ptr, SDNode *PtrUse,
     // If all the uses are load / store addresses, then don't do the
     // transformation.
     if (User->getOpcode() == ISD::ADD || User->getOpcode() == ISD::SUB) {
+      // CORE-V XCVmem (RV32 only): post-increment is profitable even when
+      // other offsets from the same base fold into reg+imm addressing.
+      bool AllowFoldableBaseUses =
+          DAG.getTarget().getTargetTriple().isRISCV32() &&
+          DAG.getSubtarget().checkFeatures("+xcvmem");
+      if (User != PtrUse && AllowFoldableBaseUses)
+        continue;
       for (SDNode *UserUser : User->users())
         if (canFoldInAddressingMode(User, UserUser, DAG, TLI))
           return false;

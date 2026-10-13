@@ -2412,6 +2412,11 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         else
           Opcode = RISCV::CV_LBU_rr_inc;
         break;
+      case MVT::f16:
+        if (!Subtarget->hasStdExtZhinxmin())
+          break;
+        Opcode = Simm12 ? RISCV::CV_LH_ri_inc : RISCV::CV_LH_rr_inc;
+         break;
       case MVT::i16:
         if (Simm12 && SignExtend)
           Opcode = RISCV::CV_LH_ri_inc;
@@ -2422,6 +2427,9 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         else
           Opcode = RISCV::CV_LHU_rr_inc;
         break;
+      case MVT::f32:
+        if (!Subtarget->hasStdExtZfinx())
+          break;
       case MVT::i32:
         if (Simm12)
           Opcode = RISCV::CV_LW_ri_inc;
@@ -2441,9 +2449,23 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
           break;
       }
 
-      ReplaceNode(Node, CurDAG->getMachineNode(Opcode, DL, XLenVT, XLenVT,
-                                               Chain.getSimpleValueType(), Base,
-                                               Offset, Chain));
+      MachineSDNode *New = CurDAG->getMachineNode(
+          Opcode, DL, XLenVT, XLenVT, Chain.getSimpleValueType(), Base,
+          Offset, Chain);
+
+      MVT VT = Load->getSimpleValueType(0);
+      if (VT == MVT::f32 || VT == MVT::f16) {
+        unsigned SubReg = VT == MVT::f32 ? RISCV::sub_32 : RISCV::sub_16;
+        SDValue Val =
+            CurDAG->getTargetExtractSubreg(SubReg, DL, VT, SDValue(New, 0));
+        ReplaceUses(SDValue(Node, 0), Val);
+        ReplaceUses(SDValue(Node, 1), SDValue(New, 1));
+        ReplaceUses(SDValue(Node, 2), SDValue(New, 2));
+        CurDAG->RemoveDeadNode(Node);
+        return;
+      }
+
+      ReplaceNode(Node, New);
       return;
     }
     break;

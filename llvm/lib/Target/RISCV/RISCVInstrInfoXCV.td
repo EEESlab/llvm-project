@@ -882,6 +882,44 @@ let Predicates = [HasVendorXCVmem, IsRV32], AddedComplexity = 1 in {
   def : CVStrrPat<store, CV_SW_rr>;
 }
 
+let Predicates = [HasVendorXCVmem, HasStdExtZhinxmin, IsRV32],
+    AddedComplexity = 1 in {
+  def : Pat<(f16 (load CVrr:$regreg)),
+            (EXTRACT_SUBREG (CV_LH_rr CVrr:$regreg), sub_16)>;
+
+  def : Pat<(post_store (f16 GPRF16:$rs2), GPR:$rs1, simm12_postinc_h:$imm12),
+            (CV_SH_ri_inc
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF16:$rs2, sub_16),
+               GPR:$rs1, simm12_postinc_h:$imm12)>;
+  def : Pat<(post_store (f16 GPRF16:$rs2), GPR:$rs1, GPR:$rs3),
+            (CV_SH_rr_inc
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF16:$rs2, sub_16),
+               GPR:$rs1, GPR:$rs3)>;
+  def : Pat<(store (f16 GPRF16:$rs2), CVrr:$regreg),
+            (CV_SH_rr
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF16:$rs2, sub_16),
+               CVrr:$regreg)>;
+}
+
+let Predicates = [HasVendorXCVmem, HasStdExtZfinx, IsRV32],
+    AddedComplexity = 1 in {
+  def : Pat<(f32 (load CVrr:$regreg)),
+            (EXTRACT_SUBREG (CV_LW_rr CVrr:$regreg), sub_32)>;
+
+  def : Pat<(post_store (f32 GPRF32:$rs2), GPR:$rs1, simm12_postinc_w:$imm12),
+            (CV_SW_ri_inc
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF32:$rs2, sub_32),
+               GPR:$rs1, simm12_postinc_w:$imm12)>;
+  def : Pat<(post_store (f32 GPRF32:$rs2), GPR:$rs1, GPR:$rs3),
+            (CV_SW_rr_inc
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF32:$rs2, sub_32),
+               GPR:$rs1, GPR:$rs3)>;
+  def : Pat<(store (f32 GPRF32:$rs2), CVrr:$regreg),
+            (CV_SW_rr
+               (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRF32:$rs2, sub_32),
+               CVrr:$regreg)>;
+}
+
 let Predicates = [HasVendorXCVelw, IsRV32] in {
   def : Pat<(int_riscv_cv_elw_elw (XLenVT GPR:$rs1)), (PseudoCV_ELW GPR:$rs1)>;
   def : Pat<(int_riscv_cv_elw_elw (AddrRegImm (XLenVT GPR:$rs1), simm12_lo:$imm12)),

@@ -1892,6 +1892,16 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setIndexedStoreAction(ISD::POST_INC, MVT::i8, Legal);
     setIndexedStoreAction(ISD::POST_INC, MVT::i16, Legal);
     setIndexedStoreAction(ISD::POST_INC, MVT::i32, Legal);
+
+    if (Subtarget.hasStdExtZhinxmin()) {
+      setIndexedLoadAction(ISD::POST_INC, MVT::f16, Legal);
+      setIndexedStoreAction(ISD::POST_INC, MVT::f16, Legal);
+    }
+
+    if (Subtarget.hasStdExtZfinx()) {
+      setIndexedLoadAction(ISD::POST_INC, MVT::f32, Legal);
+      setIndexedStoreAction(ISD::POST_INC, MVT::f32, Legal);
+    }
   }
 
   // zve32x is broken for partial_reduce_umla, but let's not make it worse.
