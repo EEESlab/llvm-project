@@ -26437,10 +26437,10 @@ bool RISCVTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
     if (Op->getOpcode() != ISD::ADD)
       return false;
 
-    if (LSBaseSDNode *LS = dyn_cast<LSBaseSDNode>(N))
-      Base = LS->getBasePtr();
-    else
+    LSBaseSDNode *LS = dyn_cast<LSBaseSDNode>(N);
+    if (!LS)
       return false;
+    Base = LS->getBasePtr();
 
     if (Base == Op->getOperand(0))
       Offset = Op->getOperand(1);
@@ -26448,6 +26448,15 @@ bool RISCVTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
       Offset = Op->getOperand(0);
     else
       return false;
+
+    // A constant increment that is not a multiple of the access size would
+    // leave the pointer misaligned for the next access.
+    if (auto *C = dyn_cast<ConstantSDNode>(Offset)) {
+      int64_t Inc = C->getSExtValue();
+      int64_t Size = LS->getMemoryVT().getStoreSize();
+      if (Inc % Size != 0)
+        return false;
+    }
 
     AM = ISD::POST_INC;
     return true;

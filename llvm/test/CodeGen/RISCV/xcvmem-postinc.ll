@@ -13,8 +13,9 @@
 define ptr @test_sh_misaligned_postinc(ptr %p, i16 %v) {
 ; CHECK-LABEL: test_sh_misaligned_postinc:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    li a2, 1
-; CHECK-NEXT:    cv.sh a1, (a0), a2
+; CHECK-NEXT:    mv a2, a0
+; CHECK-NEXT:    addi a0, a0, 1
+; CHECK-NEXT:    sh a1, 0(a2)
 ; CHECK-NEXT:    ret
   store i16 %v, ptr %p, align 2
   %next = getelementptr i8, ptr %p, i32 1

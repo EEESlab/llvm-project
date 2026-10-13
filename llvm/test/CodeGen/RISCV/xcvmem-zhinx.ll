@@ -160,21 +160,21 @@ define void @fsh_rr(ptr %a, half %b, i32 %c) {
   ret void
 }
 
-; An odd increment is not a valid simm12_postinc_h immediate, so the
-; register post-increment form is used instead (same as for i16).
+; An odd increment is not a multiple of the halfword size, so no
+; post-increment form is used: plain sh + addi (same as for i16).
 define ptr @fsh_ri_inc_odd(ptr %a, half %b) {
 ; ZHINX-LABEL: fsh_ri_inc_odd:
 ; ZHINX:       # %bb.0:
-; ZHINX-NEXT:    # kill: def $x11_h killed $x11_h def $x11
-; ZHINX-NEXT:    li a2, 3
-; ZHINX-NEXT:    cv.sh a1, (a0), a2
+; ZHINX-NEXT:    mv a2, a0
+; ZHINX-NEXT:    addi a0, a0, 3
+; ZHINX-NEXT:    sh a1, 0(a2)
 ; ZHINX-NEXT:    ret
 ;
 ; ZHINXMIN-LABEL: fsh_ri_inc_odd:
 ; ZHINXMIN:       # %bb.0:
-; ZHINXMIN-NEXT:    # kill: def $x11_h killed $x11_h def $x11
-; ZHINXMIN-NEXT:    li a2, 3
-; ZHINXMIN-NEXT:    cv.sh a1, (a0), a2
+; ZHINXMIN-NEXT:    mv a2, a0
+; ZHINXMIN-NEXT:    addi a0, a0, 3
+; ZHINXMIN-NEXT:    sh a1, 0(a2)
 ; ZHINXMIN-NEXT:    ret
 ;
 ; ZFH-LABEL: fsh_ri_inc_odd:
