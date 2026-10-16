@@ -215,6 +215,11 @@ private:
 
   bool convertCandidate(CVHWLoopCandidate &Candidate, unsigned LoopID,
                         bool IsOuter);
+
+  bool tryConvertCandidate(CVHWLoopCandidate &Candidate, unsigned LoopID,
+                           bool IsOuter);
+
+  bool foldDuplicateCounter(CVHWLoopCandidate &Candidate) const;
 };
 
 } // end anonymous namespace
@@ -624,6 +629,7 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
         }
 
         LLVM_DEBUG(dbgs() << "  counter: real use: " << MI);
+        Candidate.DeadCounter.clear();
         return;
       }
 
@@ -632,6 +638,7 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
       if (MI.getNumExplicitDefs() != 1 || MI.mayLoadOrStore() ||
           MI.hasUnmodeledSideEffects()) {
         LLVM_DEBUG(dbgs() << "  counter: unsuitable: " << MI);
+        Candidate.DeadCounter.clear();
         return;
       }
 
@@ -1006,6 +1013,133 @@ RISCVHardwareLoops::analyzeLoop(MachineLoop &ML) const {
 
 bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
                                           unsigned LoopID, bool IsOuter) {
+  if (tryConvertCandidate(Candidate, LoopID, IsOuter))
+    return true;
+
+  foldDuplicateCounter(Candidate);
+
+  return false;
+}
+
+/// A rejected loop keeps PseudoCVHWLoopEnd, which is later expanded to
+/// "addi Tmp, Tmp, -1". Next to it sits the countdown LSR created (see
+/// findDeadSoftwareCounter()), so the latch ends up as
+///
+///     Tmp = COPY Counter            ; feeds the pseudo's tied operand
+///     Tmp = PseudoCVHWLoopEnd Tmp   ; -> addi Tmp, Tmp, -1
+///     Counter = ADDI Counter, -1    ; LSR's countdown
+///     branch on Tmp
+///
+/// Both registers hold the same value. Rewrite the pseudo and the branch to
+/// use Counter directly and erase the copy and LSR's decrement:
+///
+///     Counter = PseudoCVHWLoopEnd Counter
+///     branch on Counter
+bool RISCVHardwareLoops::foldDuplicateCounter(
+    CVHWLoopCandidate &Candidate) const {
+  MachineInstr *LoopEnd = Candidate.LoopEnd;
+  MachineBasicBlock *Latch = Candidate.Latch;
+
+  // findDeadSoftwareCounter() runs only once the trip count is known; with
+  // nothing found there is nothing to fold.
+  if (Candidate.DeadCounter.empty())
+    return false;
+
+  const Register Tmp = LoopEnd->getOperand(0).getReg();
+  if (!LoopEnd->getOperand(1).isReg() ||
+      LoopEnd->getOperand(1).getReg() != Tmp)
+    return false;
+
+  // The dead counter must be exactly one copy into Tmp and one decrement by
+  // one, both in the latch. The copy that initializes the counter in the
+  // preheader may also be listed; it is still needed and stays.
+  MachineInstr *Copy = nullptr;
+  MachineInstr *Decrement = nullptr;
+  for (MachineInstr *MI : Candidate.DeadCounter) {
+    if (MI->getParent() != Latch)
+      continue;
+
+    const bool IsMove =
+        MI->isCopy() ||
+        (MI->getOpcode() == RISCV::ADDI && MI->getOperand(2).isImm() &&
+         MI->getOperand(2).getImm() == 0);
+    if (IsMove && MI->getOperand(0).getReg() == Tmp &&
+        MI->getOperand(1).isReg()) {
+      if (Copy)
+        return false;
+      Copy = MI;
+      continue;
+    }
+
+    if (MI->getOpcode() == RISCV::ADDI && MI->getOperand(1).isReg() &&
+        MI->getOperand(2).isImm() && MI->getOperand(2).getImm() == -1 &&
+        MI->getOperand(0).getReg() == MI->getOperand(1).getReg()) {
+      if (Decrement)
+        return false;
+      Decrement = MI;
+      continue;
+    }
+
+    return false;
+  }
+
+  if (!Copy || !Decrement)
+    return false;
+
+  const Register Counter = Copy->getOperand(1).getReg();
+  if (Counter == Tmp || Decrement->getOperand(0).getReg() != Counter)
+    return false;
+
+  // The copy must read the counter before LSR's decrement overwrites it,
+  // otherwise the branch tests a value one lower than the fold produces.
+  for (MachineInstr &MI : *Latch) {
+    if (&MI == Copy)
+      break;
+    if (&MI == Decrement)
+      return false;
+  }
+
+  // Tmp must be private to the loop control: read only by the pseudo and the
+  // loop branch, not live into the header and not live out of the loop.
+  if (Candidate.Header->isLiveIn(Tmp))
+    return false;
+
+  for (MachineBasicBlock *MBB : Candidate.Blocks)
+    for (MachineInstr &MI : *MBB) {
+      if (&MI == Copy || &MI == LoopEnd || &MI == Candidate.LoopBranch)
+        continue;
+      if (MI.readsRegister(Tmp, TRI) || MI.modifiesRegister(Tmp, TRI))
+        return false;
+    }
+
+  LivePhysRegs LPR(*TRI);
+  LPR.addLiveOuts(*Candidate.Exit);
+  for (MachineInstr &MI : reverse(*Candidate.Exit))
+    LPR.stepBackward(MI);
+  if (LPR.contains(Tmp))
+    return false;
+
+  LLVM_DEBUG(dbgs() << "  folding duplicate counter " << printReg(Tmp, TRI)
+                    << " into " << printReg(Counter, TRI) << "\n");
+
+  // Counter is still live across the backedge, so none of its uses kill it.
+  LoopEnd->getOperand(0).setReg(Counter);
+  LoopEnd->getOperand(1).setReg(Counter);
+  LoopEnd->getOperand(1).setIsKill(false);
+
+  for (MachineOperand &MO : Candidate.LoopBranch->operands())
+    if (MO.isReg() && MO.getReg() == Tmp) {
+      MO.setReg(Counter);
+      MO.setIsKill(false);
+    }
+
+  Copy->eraseFromParent();
+  Decrement->eraseFromParent();
+  return true;
+}
+
+bool RISCVHardwareLoops::tryConvertCandidate(CVHWLoopCandidate &Candidate,
+                                             unsigned LoopID, bool IsOuter) {
   assert(LoopID < 2 && "CV32E40P provides two hardware-loop register sets");
 
   LLVM_DEBUG(dbgs() << "Considering " << printMBBReference(*Candidate.Header)
