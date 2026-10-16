@@ -32,7 +32,10 @@
 //     .option norvc
 //
 // The matching .option pop is emitted at the top of the exit block, which is
-// moved to directly follow the latch.
+// moved to directly follow the latch. If the exit block is already pinned in
+// place by a hardware loop converted earlier (it is that loop's lpend, or its
+// preheader), it is not moved; instead a new block holding only a jump to the
+// exit is inserted after the latch and becomes this loop's lpend.
 //
 // lpend is a fixed address, so the body must have a statically known byte size.
 // Branches are rejected outright rather than checked against the loop bounds,
@@ -199,6 +202,12 @@ public:
 private:
   const RISCVInstrInfo *TII = nullptr;
   const TargetRegisterInfo *TRI = nullptr;
+
+  /// Blocks whose position is fixed by a hardware loop converted earlier in
+  /// this function: each loop's preheader (its setup must stay directly before
+  /// the header) and its exit block (its label is lpend, so it must stay
+  /// directly after the latch). Moving one of them would break that loop.
+  SmallPtrSet<const MachineBasicBlock *, 16> PinnedBlocks;
 
   std::optional<CVHWLoopCandidate> analyzeLoop(MachineLoop &ML) const;
 
@@ -737,6 +746,42 @@ static void placeExitAfterLatch(CVHWLoopCandidate &Candidate,
   // that edge immediately afterwards.
 }
 
+/// Check if a new block can be inserted directly after the latch.
+static bool canInsertExitTrampoline(const CVHWLoopCandidate &Candidate) {
+  const MachineBasicBlock *Latch = Candidate.Latch;
+
+  // Same idea as canPlaceExitAfterLatch(): Header and Exit are the only
+  // successors, and the new block is placed in the latch's section.
+  return Latch->succ_size() == 2 && !Latch->isEndSection();
+}
+
+/// Insert, directly after the latch, a block that jumps to the real exit,
+/// and redirect the latch's exit edge to it.
+static MachineBasicBlock *insertExitTrampoline(CVHWLoopCandidate &Candidate,
+                                               const RISCVInstrInfo &TII) {
+  MachineBasicBlock *Latch = Candidate.Latch;
+  MachineBasicBlock *Exit = Candidate.Exit;
+  MachineFunction &MF = *Latch->getParent();
+
+  MachineBasicBlock *Trampoline =
+      MF.CreateMachineBasicBlock(Exit->getBasicBlock());
+  MF.insert(std::next(Latch->getIterator()), Trampoline);
+  Trampoline->setSectionID(Latch->getSectionID());
+
+  // Everything live into the exit is live through the trampoline.
+  for (const MachineBasicBlock::RegisterMaskPair &LI : Exit->liveins())
+    Trampoline->addLiveIn(LI);
+  Trampoline->sortUniqueLiveIns();
+
+  // The latch's branches to Exit are erased by the caller, so only the CFG
+  // edge needs updating here.
+  Latch->replaceSuccessor(Exit, Trampoline);
+  Trampoline->addSuccessor(Exit);
+  TII.insertUnconditionalBranch(*Trampoline, Exit, DebugLoc());
+
+  return Trampoline;
+}
+
 //===----------------------------------------------------------------------===//
 // Emission
 //===----------------------------------------------------------------------===//
@@ -1023,14 +1068,22 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
     return false;
   }
 
-  if (!canPlaceExitAfterLatch(Candidate)) {
+  // An exit block already pinned by another hardware loop (typically a shared
+  // function epilogue) cannot be moved.
+  const bool ExitFollowsLatch =
+      Candidate.Latch->getNextNode() == Candidate.Exit;
+  const bool UseTrampoline =
+      !ExitFollowsLatch && PinnedBlocks.contains(Candidate.Exit);
+
+  if (UseTrampoline ? !canInsertExitTrampoline(Candidate)
+                    : !canPlaceExitAfterLatch(Candidate)) {
     LLVM_DEBUG(dbgs() << "  exit block cannot follow the latch\n");
     return false;
   }
 
   // The preheader successor can only change when the exit block currently
   // follows it.
-  const bool ExitWillMove = Candidate.Latch->getNextNode() != Candidate.Exit;
+  const bool ExitWillMove = !ExitFollowsLatch && !UseTrampoline;
   const bool HeaderWillFollowPreheader =
       Candidate.Preheader->getNextNode() == Candidate.Header ||
       (ExitWillMove && Candidate.Preheader->getNextNode() == Candidate.Exit &&
@@ -1050,9 +1103,17 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
   // Every check has passed. The function is modified from here on.
   DebugLoc DL = Candidate.Setup->getDebugLoc();
 
-  placeExitAfterLatch(Candidate, *TII);
+  if (UseTrampoline) {
+    LLVM_DEBUG(dbgs() << "  exit " << printMBBReference(*Candidate.Exit)
+                      << " is pinned by another hardware loop; using a jump\n");
+    Candidate.Exit = insertExitTrampoline(Candidate, *TII);
+  } else {
+    placeExitAfterLatch(Candidate, *TII);
+  }
   assert(Candidate.Preheader->getNextNode() == Candidate.Header &&
          "adjacency prediction disagreed with the resulting layout");
+  assert(Candidate.Latch->getNextNode() == Candidate.Exit &&
+         "the exit block must directly follow the latch");
 
   // Pad the loop body (if needed).
   padBody(Candidate, PadCount, DL, *TII);
@@ -1076,6 +1137,9 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
 
   Candidate.Latch->removeSuccessor(Candidate.Header,
                                    /*NormalizeSuccProbs=*/ true);
+
+  PinnedBlocks.insert(Candidate.Preheader);
+  PinnedBlocks.insert(Candidate.Exit);
 
   LLVM_DEBUG(dbgs() << "  converted using "
                     << (UseCombinedSetup ? "cv.setup" : "cv.starti/cv.endi")
@@ -1151,6 +1215,7 @@ bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
 
   TII = ST.getInstrInfo();
   TRI = ST.getRegisterInfo();
+  PinnedBlocks.clear();
 
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfoWrapperPass>().getLI();
 
