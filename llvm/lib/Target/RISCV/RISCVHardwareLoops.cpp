@@ -311,8 +311,42 @@ static std::optional<unsigned> getFixedInstrSize(const MachineInstr &MI) {
 
   // Pseudos are rejected: their expansion is not known to be a single
   // instruction, and the size in the description is not a guarantee.
-  if (MI.isPseudo())
-    return std::nullopt;
+  // The exceptions below are expanded, after this pass, into exactly one
+  // 32-bit instruction with no compressed form, so they are four bytes inside
+  // the no-RVC region. Control-flow pseudos with a single-instruction
+  // expansion (PseudoBR, PseudoRET, ...) are not listed: getBodyInstrSize
+  // rejects branches, calls and returns before asking for a size. If any
+  // expansion below changes, this list must change with it.
+  if (MI.isPseudo()) {
+    switch (MI.getOpcode()) {
+    // Zfinx/Zhinx register moves, e.g. the zeroing of a float accumulator
+    // before an inner loop. RISCVExpandPseudo: ADDI rd, rs, 0.
+    case RISCV::PseudoMV_FPR16INX:
+    case RISCV::PseudoMV_FPR32INX:
+    // Xcvsimd byte shuffle with an 8-bit immediate. RISCVExpandPseudo picks
+    // one of cv.shufflei{0,1,2,3}.sci.b from bits [7:6].
+    case RISCV::CV_SHUFFLE_SCI_B_PSEUDO:
+    // Floating-point CSR accesses, e.g. a rounding-mode change or a strict-FP
+    // quiet comparison inside a loop. Lowered 1:1 by PseudoInstExpansion to
+    // csrrs/csrrw/csrrwi/csrrc/csrrci/csrrsi.
+    case RISCV::ReadFRM:
+    case RISCV::WriteFRM:
+    case RISCV::WriteFRMImm:
+    case RISCV::SwapFRMImm:
+    case RISCV::ReadFFLAGS:
+    case RISCV::WriteFFLAGS:
+    case RISCV::ReadFCSR:
+    case RISCV::WriteFCSR:
+    case RISCV::WriteFCSRImm:
+    case RISCV::ClearFCSR:
+    case RISCV::ClearFCSRImm:
+    case RISCV::SetFCSR:
+    case RISCV::SetFCSRImm:
+      return UncompressedInstrSize;
+    default:
+      return std::nullopt;
+    }
+  }
 
   // Deliberately NOT RISCVInstrInfo::getInstSizeInBytes(): that returns 2 for
   // every instruction the subtarget *could* compress. Inside the no-RVC region
