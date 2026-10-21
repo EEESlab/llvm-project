@@ -21096,6 +21096,61 @@ bool DAGCombiner::CombineToPreIndexedLoadStore(SDNode *N) {
   return true;
 }
 
+/// Post-increment is profitable even reusing the same base
+static bool isPostIncRelaxed(const SelectionDAG &DAG) {
+  /// CORE-V XCVmem (RV32 only)
+  return DAG.getTarget().getTargetTriple().isRISCV32() &&
+         DAG.getSubtarget().checkFeatures("+xcvmem");
+}
+
+/// With the post increment relaxation, other loads/stores may still address
+/// from the pre-increment base. Collect their output chains so that the 
+/// post-indexed node \p N can be ordered after them. Otherwise the old base
+/// may stay live across the tied write-back of the post-increment, and this
+/// would require an additional copy.
+static void collectOldBaseMemChains(SDNode *N, SDNode *Op, SDValue BasePtr,
+                                    SmallVectorImpl<SDValue> &Chains) {
+  const unsigned MaxMemOps = 8;
+  unsigned MaxSteps = SelectionDAG::getHasPredecessorMaxSteps();
+  SmallPtrSet<const SDNode *, 8> Seen;
+
+  // Add M if it is a plain load/store whose address is exactly Addr.
+  auto TryAdd = [&](SDNode *M, SDValue Addr) {
+    // Skip N itself, stop at the bound, and skip nodes already considered.
+    if (M == N || Chains.size() >= MaxMemOps || !Seen.insert(M).second)
+      return;
+    auto *LS = dyn_cast<LSBaseSDNode>(M);
+    // Only consider unindexed accesses that involve the address operand.
+    if (!LS || !LS->isUnindexed() || LS->getBasePtr() != Addr)
+      return;
+    // Ordering N after M is only legal if M does not already depend on N or
+    // on the pointer update folded into it; otherwise we would form a cycle.
+    SmallPtrSet<const SDNode *, 32> Visited;
+    SmallVector<const SDNode *, 8> Worklist;
+    Worklist.push_back(M);
+    if (SDNode::hasPredecessorHelper(N, Visited, Worklist, MaxSteps) ||
+        SDNode::hasPredecessorHelper(Op, Visited, Worklist, MaxSteps))
+      return;
+    LLVM_DEBUG(dbgs() << "post-inc: old-base access ordered first: ";
+               M->dump());
+    // The output chain is the last result of loads/stores.
+    Chains.push_back(SDValue(M, M->getNumValues() - 1));
+  };
+
+  for (SDNode *U : BasePtr->users()) {
+    if (U == N || U == Op)
+      continue;
+    if (isa<LSBaseSDNode>(U)) {
+      // Access at offset 0 from the old base.
+      TryAdd(U, BasePtr);
+    } else if (U->getOpcode() == ISD::ADD || U->getOpcode() == ISD::SUB) {
+      // Access at base +/- offset.
+      for (SDNode *UU : U->users())
+        TryAdd(UU, SDValue(U, 0));
+    }
+  }
+}
+
 static bool shouldCombineToPostInc(SDNode *N, SDValue Ptr, SDNode *PtrUse,
                                    SDValue &BasePtr, SDValue &Offset,
                                    ISD::MemIndexedMode &AM,
@@ -21138,12 +21193,9 @@ static bool shouldCombineToPostInc(SDNode *N, SDValue Ptr, SDNode *PtrUse,
     // If all the uses are load / store addresses, then don't do the
     // transformation.
     if (User->getOpcode() == ISD::ADD || User->getOpcode() == ISD::SUB) {
-      // CORE-V XCVmem (RV32 only): post-increment is profitable even when
-      // other offsets from the same base fold into reg+imm addressing.
-      bool AllowFoldableBaseUses =
-          DAG.getTarget().getTargetTriple().isRISCV32() &&
-          DAG.getSubtarget().checkFeatures("+xcvmem");
-      if (User != PtrUse && AllowFoldableBaseUses)
+      // Post increment relaxation: The accesses that keep using the old
+      // base are ordered first in CombineToPostIndexedLoadStore.
+      if (User != PtrUse && isPostIncRelaxed(DAG))
         continue;
       for (SDNode *UserUser : User->users())
         if (canFoldInAddressingMode(User, UserUser, DAG, TLI))
@@ -21224,6 +21276,30 @@ bool DAGCombiner::CombineToPostIndexedLoadStore(SDNode *N) {
                                                BasePtr, Offset, AM)
                     : DAG.getIndexedMaskedStore(SDValue(N, 0), SDLoc(N),
                                                 BasePtr, Offset, AM);
+
+  // Post increment relaxation: order the accesses that still use the
+  // pre-increment base  before the post-indexed node.
+  if (!IsMasked && isPostIncRelaxed(DAG)) {
+    SmallVector<SDValue, 8> Chains;
+    collectOldBaseMemChains(N, Op, BasePtr, Chains);
+    if (!Chains.empty()) {
+      SDNode *R = Result.getNode();
+      // Keep the original incoming chain.
+      Chains.push_back(R->getOperand(0));
+      // Join the old chain and the old-base accesses.
+      SDValue TF = DAG.getNode(ISD::TokenFactor, SDLoc(N), MVT::Other, Chains);
+      // Replace only operand 0 (i.e., the chain).
+      SmallVector<SDValue, 4> Ops(R->ops());
+      Ops[0] = TF;
+      // UpdateNodeOperands may return an existing identical node (CSE), so
+      // take the result from its return value rather than from R.
+      Result = SDValue(DAG.UpdateNodeOperands(R, Ops), 0);
+      LLVM_DEBUG(dbgs() << "post-inc: chained after " << Chains.size() - 1
+		        << " old-base access(es): ";
+                 Result.dump(&DAG));
+    }
+  }
+
   ++PostIndexedNodes;
   ++NodesCombined;
   LLVM_DEBUG(dbgs() << "\nReplacing.5 "; N->dump(&DAG); dbgs() << "\nWith: ";
