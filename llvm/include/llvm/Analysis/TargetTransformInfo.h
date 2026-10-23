@@ -867,6 +867,16 @@ public:
   /// less profitable than the baseline.
   LLVM_ABI bool shouldDropLSRSolutionIfLessProfitable() const;
 
+  /// \returns the instruction budget LoopTermFold may spend in the preheader
+  /// to compute the new exit value (and the exit values of the IV it removes),
+  /// or 0 to use the generic default based on SCEVCheapExpansionBudget.
+  LLVM_ABI unsigned getLoopTermFoldExpansionBudget() const;
+
+  /// \returns true if LoopTermFold may remove an IV that is used after the
+  /// loop, by rewriting those uses to the IV's exit value computed in the
+  /// preheader.
+  LLVM_ABI bool shouldLoopTermFoldRewriteExitUses() const;
+
   /// \returns true if LSR should not optimize a chain that includes \p I.
   LLVM_ABI bool isProfitableLSRChainElement(Instruction *I) const;
 

@@ -731,6 +731,9 @@ void CodeGenPassBuilder<Derived, TargetMachineT>::addIRPasses(
     // These passes do not use MSSA.
     LoopPassManager LPM;
     LPM.addPass(CanonicalizeFreezeInLoopsPass());
+    // Must run before LSR, which drops the inbounds GEPs it looks at.
+    if (Opt.EnableLoopTermFold)
+      LPM.addPass(LoopTermFoldPreparePass());
     LPM.addPass(LoopStrengthReducePass());
     if (Opt.EnableLoopTermFold)
       LPM.addPass(LoopTermFoldPass());

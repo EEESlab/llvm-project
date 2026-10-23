@@ -26,6 +26,17 @@ public:
                                  LPMUpdater &U);
 };
 
+/// Records, in the loop metadata, a bound on the backedge-taken count that is
+/// inferred from inbounds memory accesses.  Must run before LSR, which
+/// discards the inbounds GEPs; LoopTermFold consumes the bound.
+class LoopTermFoldPreparePass
+    : public OptionalPassInfoMixin<LoopTermFoldPreparePass> {
+public:
+  LLVM_ABI PreservedAnalyses run(Loop &L, LoopAnalysisManager &AM,
+                                 LoopStandardAnalysisResults &AR,
+                                 LPMUpdater &U);
+};
+
 } // end namespace llvm
 
 #endif // LLVM_TRANSFORMS_SCALAR_LOOPTERMFOLD_H

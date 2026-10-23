@@ -337,6 +337,10 @@ public:
 
   virtual bool shouldDropLSRSolutionIfLessProfitable() const { return false; }
 
+  virtual unsigned getLoopTermFoldExpansionBudget() const { return 0; }
+
+  virtual bool shouldLoopTermFoldRewriteExitUses() const { return false; }
+
   virtual bool isProfitableLSRChainElement(Instruction *I) const {
     return false;
   }

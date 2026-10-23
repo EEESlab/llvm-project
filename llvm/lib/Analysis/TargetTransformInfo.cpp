@@ -454,6 +454,14 @@ bool TargetTransformInfo::isNumRegsMajorCostOfLSR() const {
   return TTIImpl->isNumRegsMajorCostOfLSR();
 }
 
+unsigned TargetTransformInfo::getLoopTermFoldExpansionBudget() const {
+  return TTIImpl->getLoopTermFoldExpansionBudget();
+}
+
+bool TargetTransformInfo::shouldLoopTermFoldRewriteExitUses() const {
+  return TTIImpl->shouldLoopTermFoldRewriteExitUses();
+}
+
 bool TargetTransformInfo::shouldDropLSRSolutionIfLessProfitable() const {
   return TTIImpl->shouldDropLSRSolutionIfLessProfitable();
 }

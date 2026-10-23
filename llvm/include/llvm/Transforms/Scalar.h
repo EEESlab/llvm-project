@@ -70,6 +70,13 @@ LLVM_ABI Pass *createLoopTermFoldPass();
 
 //===----------------------------------------------------------------------===//
 //
+// LoopTermFoldPrepare - Record a bound on the backedge-taken count inferred
+// from inbounds accesses, for LoopTermFold.  Expected to run before LSR.
+//
+LLVM_ABI Pass *createLoopTermFoldPreparePass();
+
+//===----------------------------------------------------------------------===//
+//
 // LoopUnroll - This pass is a simple loop unrolling pass.
 //
 LLVM_ABI Pass *createLoopUnrollPass(int OptLevel = 2,

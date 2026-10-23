@@ -861,6 +861,9 @@ void TargetPassConfig::addIRPasses() {
     // Run loop strength reduction before anything else.
     if (!DisableLSR) {
       addPass(createCanonicalizeFreezeInLoopsPass());
+      // Must run before LSR, which drops the inbounds GEPs it looks at.
+      if (EnableLoopTermFold)
+        addPass(createLoopTermFoldPreparePass());
       addPass(createLoopStrengthReducePass());
       if (EnableLoopTermFold)
         addPass(createLoopTermFoldPass());

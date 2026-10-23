@@ -132,6 +132,12 @@ STATISTIC(NumReassoc  , "Number of reassociations");
 DEBUG_COUNTER(VisitCounter, "instcombine-visit",
               "Controls which instructions are visited");
 
+static cl::opt<bool> SplitGEPDroppingNoWrap(
+    "instcombine-split-gep-dropping-nowrap", cl::Hidden, cl::init(false),
+    cl::desc("Split (gep p, x+y), x and y non-constant, into "
+             "(gep (gep p, x), y) even when this drops the inbounds/nusw "
+             "flags of the original GEP"));
+
 static cl::opt<bool> EnableCodeSinking("instcombine-code-sinking",
                                        cl::desc("Enable code sinking"),
                                        cl::init(true));
@@ -3651,10 +3657,25 @@ Instruction *InstCombinerImpl::visitGetElementPtrInst(GetElementPtrInst &GEP) {
       return GEPNoWrapFlags::none();
     };
 
+    Value *Idx1 = nullptr, *Idx2 = nullptr;
+
+    // Splitting (gep p, x+y) with two variable indices lets LICM hoist
+    // (gep p, x). It is not worth losing inbounds/nusw for that: the flag is
+    // the only proof that the final address does not wrap, which later passes
+    // rely on (e.g. LoopTermFold via LoopTermFoldPrepare), and LSR
+    // strength-reduces the address inside the loop anyway. Splits that peel
+    // off a constant offset are kept, as they help addressing-mode folding.
+    auto LosesNoWrap = [&](GEPNoWrapFlags NewFlags) {
+      return !SplitGEPDroppingNoWrap && GEP.hasNoUnsignedSignedWrap() &&
+             !NewFlags.hasNoUnsignedSignedWrap() &&
+             !isa<Constant>(Idx1) && !isa<Constant>(Idx2);
+    };
+
     // Try to replace ADD + GEP with GEP + GEP.
-    Value *Idx1, *Idx2;
     if (match(GEP.getOperand(1),
-              m_OneUse(m_AddLike(m_Value(Idx1), m_Value(Idx2))))) {
+              m_OneUse(m_AddLike(m_Value(Idx1), m_Value(Idx2)))) &&
+        !LosesNoWrap(GetPreservedNoWrapFlags(
+            match(GEP.getOperand(1), m_NUWAddLike(m_Value(), m_Value()))))) {
       //   %idx = add i64 %idx1, %idx2
       //   %gep = getelementptr i32, ptr %ptr, i64 %idx
       // as:

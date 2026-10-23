@@ -382,13 +382,13 @@ define void @multiple_uniform_stores(ptr nocapture %var1, ptr nocapture readonly
 ; CHECK-NEXT:    [[N_VEC:%.*]] = and i64 [[TMP8]], 8589934588
 ; CHECK-NEXT:    [[IND_END:%.*]] = add nuw nsw i64 [[N_VEC]], [[TMP4]]
 ; CHECK-NEXT:    [[TMP15:%.*]] = insertelement <4 x i32> <i32 poison, i32 0, i32 0, i32 0>, i32 [[ARRAYIDX5_PROMOTED]], i64 0
-; CHECK-NEXT:    [[INVARIANT_GEP:%.*]] = getelementptr [4 x i8], ptr [[VAR2]], i64 [[TMP4]]
 ; CHECK-NEXT:    br label [[VECTOR_BODY:%.*]]
 ; CHECK:       vector.body:
 ; CHECK-NEXT:    [[INDEX:%.*]] = phi i64 [ 0, [[VECTOR_PH]] ], [ [[INDEX_NEXT:%.*]], [[VECTOR_BODY]] ]
 ; CHECK-NEXT:    [[VEC_PHI:%.*]] = phi <4 x i32> [ [[TMP15]], [[VECTOR_PH]] ], [ [[TMP17:%.*]], [[VECTOR_BODY]] ]
-; CHECK-NEXT:    [[GEP:%.*]] = getelementptr [4 x i8], ptr [[INVARIANT_GEP]], i64 [[INDEX]]
-; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i32>, ptr [[GEP]], align 4, !alias.scope [[META23:![0-9]+]]
+; CHECK-NEXT:    [[TMP23:%.*]] = add i64 [[INDEX]], [[TMP4]]
+; CHECK-NEXT:    [[TMP24:%.*]] = getelementptr inbounds [4 x i8], ptr [[VAR2]], i64 [[TMP23]]
+; CHECK-NEXT:    [[WIDE_LOAD:%.*]] = load <4 x i32>, ptr [[TMP24]], align 4, !alias.scope [[META23:![0-9]+]]
 ; CHECK-NEXT:    [[TMP16:%.*]] = add <4 x i32> [[VEC_PHI]], [[WIDE_LOAD]]
 ; CHECK-NEXT:    [[TMP17]] = add <4 x i32> [[TMP16]], splat (i32 1)
 ; CHECK-NEXT:    [[INDEX_NEXT]] = add nuw i64 [[INDEX]], 4

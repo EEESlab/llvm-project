@@ -531,6 +531,12 @@ public:
   bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
                      const TargetTransformInfo::LSRCost &C2) const override;
 
+  // Removing the counter of a loop saves an instruction per iteration (and a
+  // register); depending on the architecture, spending a few more instructions
+  // once in the preheader can be profitable.
+  unsigned getLoopTermFoldExpansionBudget() const override { return 16; }
+  bool shouldLoopTermFoldRewriteExitUses() const override { return true; }
+
   bool shouldConsiderAddressTypePromotion(
       const Instruction &I,
       bool &AllowPromotionWithoutCommonHeader) const override;

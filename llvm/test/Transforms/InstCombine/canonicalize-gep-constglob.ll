@@ -21,9 +21,10 @@ define ptr @x1y(i64 %x, i64 %y) {
 ; CHECK-SAME: i64 [[X:%.*]], i64 [[Y:%.*]]) {
 ; CHECK-NEXT:  entry:
 ; CHECK-NEXT:    [[GEP_IDX:%.*]] = mul nsw i64 [[X]], 400
+; CHECK-NEXT:    [[GEP_OFFS:%.*]] = add nsw i64 [[GEP_IDX]], 80
 ; CHECK-NEXT:    [[GEP_IDX1:%.*]] = shl nsw i64 [[Y]], 2
-; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr i8, ptr getelementptr inbounds nuw (i8, ptr @glob, i64 116), i64 [[GEP_IDX]]
-; CHECK-NEXT:    [[GEP:%.*]] = getelementptr i8, ptr [[TMP0]], i64 [[GEP_IDX1]]
+; CHECK-NEXT:    [[GEP_OFFS2:%.*]] = add nsw i64 [[GEP_OFFS]], [[GEP_IDX1]]
+; CHECK-NEXT:    [[GEP:%.*]] = getelementptr inbounds i8, ptr getelementptr inbounds nuw (i8, ptr @glob, i64 36), i64 [[GEP_OFFS2]]
 ; CHECK-NEXT:    ret ptr [[GEP]]
 ;
 entry:
@@ -64,7 +65,8 @@ define i32 @twoloads(i64 %x) {
 ; CHECK-NEXT:    [[GEP1_IDX:%.*]] = mul nsw i64 [[X]], 400
 ; CHECK-NEXT:    [[GEP1:%.*]] = getelementptr i8, ptr getelementptr inbounds nuw (i8, ptr @glob, i64 134), i64 [[GEP1_IDX]]
 ; CHECK-NEXT:    [[GEP2_IDX:%.*]] = mul nsw i64 [[X]], 400
-; CHECK-NEXT:    [[GEP2:%.*]] = getelementptr i8, ptr getelementptr inbounds nuw (i8, ptr @glob, i64 132), i64 [[GEP2_IDX]]
+; CHECK-NEXT:    [[TMP0:%.*]] = getelementptr i8, ptr getelementptr inbounds nuw (i8, ptr @glob, i64 36), i64 [[GEP2_IDX]]
+; CHECK-NEXT:    [[GEP2:%.*]] = getelementptr i8, ptr [[TMP0]], i64 96
 ; CHECK-NEXT:    [[A:%.*]] = load i32, ptr [[GEP1]], align 4
 ; CHECK-NEXT:    [[B:%.*]] = load i32, ptr [[GEP2]], align 4
 ; CHECK-NEXT:    [[C:%.*]] = add i32 [[A]], [[B]]

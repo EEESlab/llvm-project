@@ -10,25 +10,31 @@
 define void @vadd_unrolled_f32(ptr %a, ptr %b, ptr %d, i32 %start, i32 %n) {
 ; CHECK-LABEL: vadd_unrolled_f32:
 ; CHECK:       # %bb.0: # %entry
-; CHECK-NEXT:    li a5, 0
-; CHECK-NEXT:    slli a3, a3, 2
-; CHECK-NEXT:    addi a3, a3, 4
-; CHECK-NEXT:    add a1, a1, a3
-; CHECK-NEXT:    add a0, a0, a3
-; CHECK-NEXT:    add a2, a2, a3
-; CHECK-NEXT:  .LBB0_1: # %loop
+; CHECK-NEXT:    slli a6, a3, 2
+; CHECK-NEXT:    addi a5, a6, 4
+; CHECK-NEXT:    bgtz a4, .LBB0_2
+; CHECK-NEXT:  # %bb.1: # %entry
+; CHECK-NEXT:    li a4, 1
+; CHECK-NEXT:  .LBB0_2: # %entry
+; CHECK-NEXT:    add a3, a1, a5
+; CHECK-NEXT:    slli a4, a4, 3
+; CHECK-NEXT:    add a1, a6, a1
+; CHECK-NEXT:    add a0, a0, a5
+; CHECK-NEXT:    add a1, a4, a1
+; CHECK-NEXT:    add a2, a2, a5
+; CHECK-NEXT:    addi a1, a1, 4
+; CHECK-NEXT:  .LBB0_3: # %loop
 ; CHECK-NEXT:    # =>This Inner Loop Header: Depth=1
-; CHECK-NEXT:    lw a3, -4(a0)
-; CHECK-NEXT:    lw a6, -4(a1)
-; CHECK-NEXT:    cv.lw a7, (a0), 8
-; CHECK-NEXT:    cv.lw t0, (a1), 8
-; CHECK-NEXT:    fadd.s a3, a3, a6
-; CHECK-NEXT:    fadd.s a6, a7, t0
-; CHECK-NEXT:    addi a5, a5, 1
-; CHECK-NEXT:    sw a3, -4(a2)
-; CHECK-NEXT:    cv.sw a6, (a2), 8
-; CHECK-NEXT:    blt a5, a4, .LBB0_1
-; CHECK-NEXT:  # %bb.2: # %exit
+; CHECK-NEXT:    lw a4, -4(a0)
+; CHECK-NEXT:    lw a5, -4(a3)
+; CHECK-NEXT:    cv.lw a6, (a0), 8
+; CHECK-NEXT:    cv.lw a7, (a3), 8
+; CHECK-NEXT:    fadd.s a4, a4, a5
+; CHECK-NEXT:    fadd.s a5, a6, a7
+; CHECK-NEXT:    sw a4, -4(a2)
+; CHECK-NEXT:    cv.sw a5, (a2), 8
+; CHECK-NEXT:    bne a3, a1, .LBB0_3
+; CHECK-NEXT:  # %bb.4: # %exit
 ; CHECK-NEXT:    ret
 entry:
   br label %loop

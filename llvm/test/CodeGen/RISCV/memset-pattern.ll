@@ -282,14 +282,14 @@ define void @memset_x(ptr %a, i128 %value, i64 %x) nounwind {
 ; RV64-BOTH:       # %bb.0:
 ; RV64-BOTH-NEXT:    beqz a3, .LBB3_3
 ; RV64-BOTH-NEXT:  # %bb.1: # %memset.pattern-expansion-main-body.preheader
-; RV64-BOTH-NEXT:    li a4, 0
+; RV64-BOTH-NEXT:    slli a3, a3, 4
+; RV64-BOTH-NEXT:    add a3, a0, a3
 ; RV64-BOTH-NEXT:  .LBB3_2: # %memset.pattern-expansion-main-body
 ; RV64-BOTH-NEXT:    # =>This Inner Loop Header: Depth=1
-; RV64-BOTH-NEXT:    addi a4, a4, 1
 ; RV64-BOTH-NEXT:    sd a1, 0(a0)
 ; RV64-BOTH-NEXT:    sd a2, 8(a0)
 ; RV64-BOTH-NEXT:    addi a0, a0, 16
-; RV64-BOTH-NEXT:    bltu a4, a3, .LBB3_2
+; RV64-BOTH-NEXT:    bne a0, a3, .LBB3_2
 ; RV64-BOTH-NEXT:  .LBB3_3: # %memset.pattern-post-expansion
 ; RV64-BOTH-NEXT:    ret
   tail call void @llvm.experimental.memset.pattern(ptr align 8 %a, i128 %value, i64 %x, i1 0)
