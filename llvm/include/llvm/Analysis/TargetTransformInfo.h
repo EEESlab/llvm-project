@@ -894,6 +894,9 @@ public:
   LLVM_ABI AddressingModeKind
   getPreferredAddressingMode(const Loop *L, ScalarEvolution *SE) const;
 
+  /// Return true if LSR should also process outer loops.
+  LLVM_ABI bool shouldLSROptimizeOuterLoop(const Loop *L) const;
+
   /// Some targets only support masked load/store with a constant mask.
   enum MaskKind {
     VariableOrConstantMask,

@@ -3412,6 +3412,13 @@ RISCVTTIImpl::getPreferredAddressingMode(const Loop *L,
   return BasicTTIImplBase::getPreferredAddressingMode(L, SE);
 }
 
+bool RISCVTTIImpl::shouldLSROptimizeOuterLoop(const Loop *L) const {
+  // CORE-V XCVmem: an outer loop often accesses an array once per iteration.
+  // Without LSR, the original integer index is preserved, requiring dedicated
+  // operations to generate the address (shift + add).
+  return ST->hasVendorXCVmem() && !ST->is64Bit();
+}
+
 bool RISCVTTIImpl::isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
                                  const TargetTransformInfo::LSRCost &C2) const {
   // RISC-V specific here are "instruction number 1st priority".

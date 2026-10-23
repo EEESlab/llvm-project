@@ -2181,6 +2181,16 @@ class LSRInstance {
   bool Changed = false;
   bool HardwareLoopProfitable = false;
 
+  /// True when L is not innermost and the target asked LSR to process it
+  /// anyway (TTI::shouldLSROptimizeOuterLoop).
+  bool OuterLoopMode = false;
+
+  /// In OuterLoopMode, return true if \p I is inside a loop nested in L.
+  bool isInSubLoop(const Instruction *I) const {
+    return OuterLoopMode && L->contains(I) &&
+           LI.getLoopFor(I->getParent()) != L;
+  }
+
   /// This is the insert position that the current loop's induction variable
   /// increment should be placed. In simple loops, this is the latch block's
   /// terminator. But in more complicated cases, this is a position which will
@@ -2944,6 +2954,9 @@ void LSRInstance::CollectInterestingTypesAndFactors() {
   // Collect interesting types and strides.
   SmallVector<const SCEV *, 4> Worklist;
   for (const IVStrideUse &U : IU) {
+    // Users in subloops are not rewritten, so their strides do not matter.
+    if (isInSubLoop(U.getUser()))
+      continue;
     const SCEV *Expr = IU.getExpr(U);
     if (!Expr)
       continue;
@@ -3334,6 +3347,10 @@ void LSRInstance::CollectChains() {
 
   // Walk the instruction stream from the loop header to the loop latch.
   for (BasicBlock *BB : reverse(LatchPath)) {
+    // In OuterLoopMode, the dominator path from the latch can run through a
+    // subloop, but its instructions must not join a chain of L.
+    if (OuterLoopMode && LI.getLoopFor(BB) != L)
+      continue;
     for (Instruction &I : *BB) {
       // Skip instructions that weren't seen by IVUsers analysis.
       if (isa<PHINode>(I) || !IU.isIVUserOrOperand(&I))
@@ -3575,6 +3592,12 @@ void LSRInstance::CollectFixupsAndInitialFormulae() {
 
   for (const IVStrideUse &U : IU) {
     Instruction *UserInst = U.getUser();
+    // In OuterLoopMode, leave users inside subloops untouchedi
+    if (isInSubLoop(UserInst)) {
+      LLVM_DEBUG(dbgs() << "Use is in a subloop, not rewritten: " << *UserInst
+                        << '\n');
+      continue;
+    }
     // Skip IV users that are part of profitable IV Chains.
     User::op_iterator UseI =
         find(UserInst->operands(), U.getOperandValToReplace());
@@ -3589,6 +3612,13 @@ void LSRInstance::CollectFixupsAndInitialFormulae() {
     if (isAddressUse(TTI, UserInst, U.getOperandValToReplace())) {
       Kind = LSRUse::Address;
       AccessTy = getAccessType(TTI, UserInst, U.getOperandValToReplace());
+    }
+
+    // In OuterLoopMode only memory addresses are rewritten.
+    if (OuterLoopMode && Kind != LSRUse::Address) {
+      LLVM_DEBUG(dbgs() << "Outer loop, not an address use: " << *UserInst
+                        << '\n');
+      continue;
     }
 
     const SCEV *S = IU.getExpr(U);
@@ -6344,10 +6374,18 @@ LSRInstance::LSRInstance(Loop *L, IVUsers &IU, ScalarEvolution &SE,
   // If loop preparation eliminates all interesting IV users, bail.
   if (IU.empty()) return;
 
-  // Skip nested loops until we can model them better with formulae.
+  // Skip nested loops until we can model them better with formulae. A target
+  // can opt in for an outer loop; LSR then only rewrites the load/store
+  // addresses in the loop's own blocks, e.g. the store of a result after an
+  // inner loop, and leaves the IV users inside its subloops to the inner
+  // loops' own LSR runs.
   if (!L->isInnermost()) {
-    LLVM_DEBUG(dbgs() << "LSR skipping outer loop " << *L << "\n");
-    return;
+    if (!TTI.shouldLSROptimizeOuterLoop(L)) {
+      LLVM_DEBUG(dbgs() << "LSR skipping outer loop " << *L << "\n");
+      return;
+    }
+    OuterLoopMode = true;
+    LLVM_DEBUG(dbgs() << "LSR on outer loop, own-block addresses only\n");
   }
 
   // Start collecting data and preparing for the solver.

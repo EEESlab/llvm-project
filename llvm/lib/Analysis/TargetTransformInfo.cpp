@@ -479,6 +479,10 @@ TargetTransformInfo::getPreferredAddressingMode(const Loop *L,
   return TTIImpl->getPreferredAddressingMode(L, SE);
 }
 
+bool TargetTransformInfo::shouldLSROptimizeOuterLoop(const Loop *L) const {
+  return TTIImpl->shouldLSROptimizeOuterLoop(L);
+}
+
 bool TargetTransformInfo::isLegalMaskedStore(Type *DataType, Align Alignment,
                                              unsigned AddressSpace,
                                              TTI::MaskKind MaskKind) const {

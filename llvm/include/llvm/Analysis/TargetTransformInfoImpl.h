@@ -354,6 +354,10 @@ public:
     return TTI::AMK_None;
   }
 
+  virtual bool shouldLSROptimizeOuterLoop(const Loop *L) const {
+    return false;
+  }
+
   virtual bool isLegalMaskedStore(Type *DataType, Align Alignment,
                                   unsigned AddressSpace,
                                   TTI::MaskKind MaskKind) const {

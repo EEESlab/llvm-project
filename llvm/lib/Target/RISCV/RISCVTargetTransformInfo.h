@@ -497,6 +497,8 @@ public:
   TTI::AddressingModeKind
   getPreferredAddressingMode(const Loop *L, ScalarEvolution *SE) const override;
 
+  bool shouldLSROptimizeOuterLoop(const Loop *L) const override;
+
   unsigned getRegisterClassForType(bool Vector,
                                    Type *Ty = nullptr) const override {
     if (Vector)
