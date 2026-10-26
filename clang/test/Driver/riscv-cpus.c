@@ -8,6 +8,22 @@
 // MCPU-ROCKET64: "-nostdsysteminc" "-target-cpu" "rocket-rv64"
 // MCPU-ROCKET64: "-target-feature" "+zicsr" "-target-feature" "+zifencei"
 
+// RUN: %clang --target=riscv32 -### -c %s 2>&1 -mcpu=cv32e40p | FileCheck -check-prefix=MCPU-CV32E40P %s
+// MCPU-CV32E40P: "-target-cpu" "cv32e40p"
+// MCPU-CV32E40P-DAG: "-target-feature" "+m"
+// MCPU-CV32E40P-DAG: "-target-feature" "+c"
+// MCPU-CV32E40P-DAG: "-target-feature" "+zicsr"
+// MCPU-CV32E40P-DAG: "-target-feature" "+zifencei"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvalu"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvbi"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvbitmanip"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvelw"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvhwlp"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvmac"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvmem"
+// MCPU-CV32E40P-DAG: "-target-feature" "+xcvsimd"
+// MCPU-CV32E40P-DAG: "-target-abi" "ilp32"
+
 // RUN: %clang --target=riscv32 -### -c %s 2>&1 -mcpu=syntacore-scr1-base | FileCheck -check-prefix=MCPU-SYNTACORE-SCR1-BASE %s
 // MCPU-SYNTACORE-SCR1-BASE: "-target-cpu" "syntacore-scr1-base"
 // MCPU-SYNTACORE-SCR1-BASE: "-target-feature" "+c"
@@ -157,6 +173,9 @@
 // MCPU-MIPS-P8700-SAME: "-target-feature" "+xmipscbop"
 // MCPU-MIPS-P8700-SAME: "-target-feature" "+xmipscmov"
 // MCPU-MIPS-P8700-SAME: "-target-feature" "+xmipslsp"
+
+// RUN: %clang --target=riscv32 -### -c %s 2>&1 -mtune=cv32e40p | FileCheck -check-prefix=MTUNE-CV32E40P %s
+// MTUNE-CV32E40P: "-tune-cpu" "cv32e40p"
 
 // RUN: %clang --target=riscv32 -### -c %s 2>&1 -mtune=syntacore-scr1-base | FileCheck -check-prefix=MTUNE-SYNTACORE-SCR1-BASE %s
 // MTUNE-SYNTACORE-SCR1-BASE: "-tune-cpu" "syntacore-scr1-base"

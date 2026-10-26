@@ -117,6 +117,25 @@ def GENERIC_OOO : RISCVTuneProcessorModel<"generic-ooo", GenericOOOModel>,
                   GenericTuneInfo;
 
 // clang-format off
+
+def CV32E40P : RISCVProcessorModel<"cv32e40p",
+                                   CV32E40PModel,
+                                   [Feature32Bit,
+                                    FeatureStdExtI,
+                                    FeatureStdExtZicsr,
+                                    FeatureStdExtZifencei,
+                                    FeatureStdExtM,
+                                    FeatureStdExtC,
+                                    FeatureVendorXCValu,
+                                    FeatureVendorXCVbi,
+                                    FeatureVendorXCVbitmanip,
+                                    FeatureVendorXCVelw,
+                                    FeatureVendorXCVhwlp,
+                                    FeatureVendorXCVmac,
+                                    FeatureVendorXCVmem,
+                                    FeatureVendorXCVsimd],
+                                   [TunePostRAScheduler]>;
+
 def MIPS_P8700 : RISCVProcessorModel<"mips-p8700",
                                      MIPSP8700Model,
                                      [Feature64Bit,
