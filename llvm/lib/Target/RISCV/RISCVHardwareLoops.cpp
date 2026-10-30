@@ -599,31 +599,37 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
     return;
   }
 
-  // LSR's countdown often runs on a copy of the count rather than the register
-  // cv.setup reads: the phi's incoming value is materialized in the preheader.
-  // Follow one copy to find the register the loop actually decrements.
-  Register CounterReg = Count.Reg;
-  MachineInstr *CounterInit = nullptr;
+  auto IsMove = [](const MachineInstr &MI) {
+    return (MI.isCopy() ||
+            (MI.getOpcode() == RISCV::ADDI && MI.getNumExplicitOperands() == 3 &&
+             MI.getOperand(2).isImm() && MI.getOperand(2).getImm() == 0)) &&
+           MI.getOperand(0).isReg() && MI.getOperand(1).isReg();
+  };
 
-  for (MachineInstr &MI : *Candidate.Preheader) {
-    if (&MI == Candidate.Setup)
-      continue;
-
-    const bool IsMove =
-        MI.isCopy() || (MI.getOpcode() == RISCV::ADDI &&
-                        MI.getNumExplicitOperands() == 3 &&
-                        MI.getOperand(2).isImm() &&
-                        MI.getOperand(2).getImm() == 0);
-
-    if (!IsMove || !MI.getOperand(0).isReg() || !MI.getOperand(1).isReg())
-      continue;
-
-    if (MI.getOperand(1).getReg() == Count.Reg) {
-      CounterReg = MI.getOperand(0).getReg();
-      CounterInit = &MI;
+  MachineBasicBlock *EndMBB = Candidate.LoopEnd->getParent();
+  Register CounterReg = Candidate.LoopEnd->getOperand(1).getReg();
+  for (MachineBasicBlock::iterator I = Candidate.LoopEnd->getIterator(),
+                                   B = EndMBB->begin();
+       I != B;) {
+    --I;
+    if (I->modifiesRegister(CounterReg, &TRI)) {
+      if (IsMove(*I))
+        CounterReg = I->getOperand(1).getReg();
       break;
     }
   }
+
+  MachineInstr *CounterInit = nullptr;
+  if (CounterReg != Count.Reg)
+    for (MachineInstr &MI : reverse(*Candidate.Preheader))
+      if (MI.modifiesRegister(CounterReg, &TRI)) {
+        if (IsMove(MI) && MI.getOperand(0).getReg() == CounterReg)
+          CounterInit = &MI;
+        break;
+      }
+
+  LLVM_DEBUG(dbgs() << "  counter: " << printReg(CounterReg, &TRI)
+                    << " feeds the loop end\n");
 
   // Anything after the loop may still read the count.
   LivePhysRegs LPR(TRI);
