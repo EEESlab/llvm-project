@@ -2,12 +2,12 @@
 # RUN: llvm-mca -mtriple=riscv32 -mcpu=cv32e40p -mattr=+zfinx --iterations=1 \
 # RUN:   --timeline=false --resource-pressure=false < %s | FileCheck %s
 
-# Latencies from the CV32E40P user manual (Pipeline Details), with the
-# default FPU_ADDMUL_LAT = FPU_OTHERS_LAT = 0:
+# Latencies from the CV32E40P user manual (Pipeline Details), with
+# FPU_ADDMUL_LAT = FPU_OTHERS_LAT = 1:
 #  - load: 2 (one-cycle load-use penalty), also for the CORE-V XCVmem forms;
 #    the post-increment base write-back is ready after 1 cycle
 #  - ALU, mul: 1; mulh, mulhu, mulhsu: 5; div/rem: 35 (worst case)
-#  - FP add/mul/fma and other FP operations: 1; fdiv/fsqrt: 19 (worst case)
+#  - FP add/mul/fma and other FP operations: 2; fdiv/fsqrt: 19 (worst case)
 
 add      a0, a1, a2
 mul      a0, a1, a2
@@ -73,11 +73,11 @@ fsqrt.s  a0, a1
 # CHECK-NEXT:  1      1     1.00           *            cv.sw	a0, (a1), 4
 # CHECK-NEXT:  1      1     1.00           *            cv.sw	a0, (a1), a2
 # CHECK-NEXT:  1      1     1.00           *            cv.sw	a0, a2(a1)
-# CHECK-NEXT:  1      1     1.00                        fadd.s	a0, a1, a2
-# CHECK-NEXT:  1      1     1.00                        fmul.s	a0, a1, a2
-# CHECK-NEXT:  1      1     1.00                        fmadd.s	a0, a1, a2, a3
-# CHECK-NEXT:  1      1     1.00                        fmin.s	a0, a1, a2
-# CHECK-NEXT:  1      1     1.00                        feq.s	a0, a1, a2
-# CHECK-NEXT:  1      1     1.00                        fcvt.w.s	a0, a1
+# CHECK-NEXT:  1      2     1.00                        fadd.s	a0, a1, a2
+# CHECK-NEXT:  1      2     1.00                        fmul.s	a0, a1, a2
+# CHECK-NEXT:  1      2     1.00                        fmadd.s	a0, a1, a2, a3
+# CHECK-NEXT:  1      2     1.00                        fmin.s	a0, a1, a2
+# CHECK-NEXT:  1      2     1.00                        feq.s	a0, a1, a2
+# CHECK-NEXT:  1      2     1.00                        fcvt.w.s	a0, a1
 # CHECK-NEXT:  1      19    19.00                       fdiv.s	a0, a1, a2
 # CHECK-NEXT:  1      19    19.00                       fsqrt.s	a0, a1

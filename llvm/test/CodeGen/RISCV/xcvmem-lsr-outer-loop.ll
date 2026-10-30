@@ -110,22 +110,24 @@ define void @row_scale_acc(ptr %a, ptr %b, ptr %d, i32 %rows, i32 %cols) {
 ; XCV:       # %bb.0: # %entry
 ; XCV-NEXT:    li a5, 0
 ; XCV-NEXT:    slli a4, a4, 2
-; XCV-NEXT:    add a6, a1, a4
+; XCV-NEXT:    add a6, a2, a4
 ; XCV-NEXT:  .LBB1_1: # %outer
 ; XCV-NEXT:    # =>This Loop Header: Depth=1
 ; XCV-NEXT:    # Child Loop BB1_2 Depth 2
+; XCV-NEXT:    mul t0, a4, a5
 ; XCV-NEXT:    slli a7, a5, 2
-; XCV-NEXT:    mv t0, a1
-; XCV-NEXT:    mv t1, a2
+; XCV-NEXT:    add t0, a6, t0
+; XCV-NEXT:    mv t1, a1
+; XCV-NEXT:    mv t2, a2
 ; XCV-NEXT:  .LBB1_2: # %inner
 ; XCV-NEXT:    # Parent Loop BB1_1 Depth=1
 ; XCV-NEXT:    # => This Inner Loop Header: Depth=2
-; XCV-NEXT:    cv.lw t2, a7(a0)
-; XCV-NEXT:    cv.lw t3, (t0), 4
-; XCV-NEXT:    lw t4, 0(t1)
-; XCV-NEXT:    fmadd.s t2, t2, t3, t4
-; XCV-NEXT:    cv.sw t2, (t1), 4
-; XCV-NEXT:    bne t0, a6, .LBB1_2
+; XCV-NEXT:    cv.lw t3, a7(a0)
+; XCV-NEXT:    cv.lw t4, (t1), 4
+; XCV-NEXT:    lw t5, 0(t2)
+; XCV-NEXT:    fmadd.s t3, t3, t4, t5
+; XCV-NEXT:    cv.sw t3, (t2), 4
+; XCV-NEXT:    bne t2, t0, .LBB1_2
 ; XCV-NEXT:  # %bb.3: # %outer.latch
 ; XCV-NEXT:    # in Loop: Header=BB1_1 Depth=1
 ; XCV-NEXT:    addi a5, a5, 1
@@ -138,25 +140,27 @@ define void @row_scale_acc(ptr %a, ptr %b, ptr %d, i32 %rows, i32 %cols) {
 ; NOXCV:       # %bb.0: # %entry
 ; NOXCV-NEXT:    li a5, 0
 ; NOXCV-NEXT:    slli a4, a4, 2
-; NOXCV-NEXT:    add a6, a1, a4
+; NOXCV-NEXT:    add a6, a2, a4
 ; NOXCV-NEXT:  .LBB1_1: # %outer
 ; NOXCV-NEXT:    # =>This Loop Header: Depth=1
 ; NOXCV-NEXT:    # Child Loop BB1_2 Depth 2
+; NOXCV-NEXT:    mul t0, a4, a5
 ; NOXCV-NEXT:    slli a7, a5, 2
 ; NOXCV-NEXT:    add a7, a0, a7
-; NOXCV-NEXT:    mv t0, a1
-; NOXCV-NEXT:    mv t1, a2
+; NOXCV-NEXT:    add t0, a6, t0
+; NOXCV-NEXT:    mv t1, a1
+; NOXCV-NEXT:    mv t2, a2
 ; NOXCV-NEXT:  .LBB1_2: # %inner
 ; NOXCV-NEXT:    # Parent Loop BB1_1 Depth=1
 ; NOXCV-NEXT:    # => This Inner Loop Header: Depth=2
-; NOXCV-NEXT:    lw t2, 0(a7)
-; NOXCV-NEXT:    lw t3, 0(t0)
+; NOXCV-NEXT:    lw t3, 0(a7)
 ; NOXCV-NEXT:    lw t4, 0(t1)
-; NOXCV-NEXT:    fmadd.s t2, t2, t3, t4
-; NOXCV-NEXT:    addi t0, t0, 4
-; NOXCV-NEXT:    sw t2, 0(t1)
+; NOXCV-NEXT:    lw t5, 0(t2)
+; NOXCV-NEXT:    fmadd.s t3, t3, t4, t5
+; NOXCV-NEXT:    sw t3, 0(t2)
+; NOXCV-NEXT:    addi t2, t2, 4
 ; NOXCV-NEXT:    addi t1, t1, 4
-; NOXCV-NEXT:    bne t0, a6, .LBB1_2
+; NOXCV-NEXT:    bne t2, t0, .LBB1_2
 ; NOXCV-NEXT:  # %bb.3: # %outer.latch
 ; NOXCV-NEXT:    # in Loop: Header=BB1_1 Depth=1
 ; NOXCV-NEXT:    addi a5, a5, 1

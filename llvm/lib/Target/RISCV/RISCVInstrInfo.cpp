@@ -2232,6 +2232,11 @@ static bool isFADD(unsigned Opc) {
   case RISCV::FADD_H:
   case RISCV::FADD_S:
   case RISCV::FADD_D:
+  // Zhinx, Zfinx and Zdinx (RV64 and RV32 register-pair) forms.
+  case RISCV::FADD_H_INX:
+  case RISCV::FADD_S_INX:
+  case RISCV::FADD_D_INX:
+  case RISCV::FADD_D_IN32X:
     return true;
   }
 }
@@ -2243,6 +2248,11 @@ static bool isFSUB(unsigned Opc) {
   case RISCV::FSUB_H:
   case RISCV::FSUB_S:
   case RISCV::FSUB_D:
+  // Zhinx, Zfinx and Zdinx (RV64 and RV32 register-pair) forms.
+  case RISCV::FSUB_H_INX:
+  case RISCV::FSUB_S_INX:
+  case RISCV::FSUB_D_INX:
+  case RISCV::FSUB_D_IN32X:
     return true;
   }
 }
@@ -2254,6 +2264,11 @@ static bool isFMUL(unsigned Opc) {
   case RISCV::FMUL_H:
   case RISCV::FMUL_S:
   case RISCV::FMUL_D:
+  // Zhinx, Zfinx and Zdinx (RV64 and RV32 register-pair) forms.
+  case RISCV::FMUL_H_INX:
+  case RISCV::FMUL_S_INX:
+  case RISCV::FMUL_D_INX:
+  case RISCV::FMUL_D_IN32X:
     return true;
   }
 }
@@ -2549,6 +2564,14 @@ bool RISCVInstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst,
   case RISCV::FMAX_H:
   case RISCV::FMAX_S:
   case RISCV::FMAX_D:
+  case RISCV::FMIN_H_INX:
+  case RISCV::FMIN_S_INX:
+  case RISCV::FMIN_D_INX:
+  case RISCV::FMIN_D_IN32X:
+  case RISCV::FMAX_H_INX:
+  case RISCV::FMAX_S_INX:
+  case RISCV::FMAX_D_INX:
+  case RISCV::FMAX_D_IN32X:
     return true;
   }
 
@@ -2604,6 +2627,22 @@ RISCVInstrInfo::getInverseOpcode(unsigned Opcode) const {
     return RISCV::FADD_S;
   case RISCV::FSUB_D:
     return RISCV::FADD_D;
+  case RISCV::FADD_H_INX:
+    return RISCV::FSUB_H_INX;
+  case RISCV::FADD_S_INX:
+    return RISCV::FSUB_S_INX;
+  case RISCV::FADD_D_INX:
+    return RISCV::FSUB_D_INX;
+  case RISCV::FADD_D_IN32X:
+    return RISCV::FSUB_D_IN32X;
+  case RISCV::FSUB_H_INX:
+    return RISCV::FADD_H_INX;
+  case RISCV::FSUB_S_INX:
+    return RISCV::FADD_S_INX;
+  case RISCV::FSUB_D_INX:
+    return RISCV::FADD_D_INX;
+  case RISCV::FSUB_D_IN32X:
+    return RISCV::FADD_D_IN32X;
   case RISCV::ADD:
     return RISCV::SUB;
   case RISCV::SUB:
@@ -2819,6 +2858,27 @@ static unsigned getFPFusedMultiplyOpcode(unsigned RootOpc, unsigned Pattern) {
   case RISCV::FSUB_D:
     return Pattern == RISCVMachineCombinerPattern::FMSUB ? RISCV::FMSUB_D
                                                          : RISCV::FNMSUB_D;
+  case RISCV::FADD_H_INX:
+    return RISCV::FMADD_H_INX;
+  case RISCV::FADD_S_INX:
+    return RISCV::FMADD_S_INX;
+  case RISCV::FADD_D_INX:
+    return RISCV::FMADD_D_INX;
+  case RISCV::FADD_D_IN32X:
+    return RISCV::FMADD_D_IN32X;
+  case RISCV::FSUB_H_INX:
+    return Pattern == RISCVMachineCombinerPattern::FMSUB ? RISCV::FMSUB_H_INX
+                                                         : RISCV::FNMSUB_H_INX;
+  case RISCV::FSUB_S_INX:
+    return Pattern == RISCVMachineCombinerPattern::FMSUB ? RISCV::FMSUB_S_INX
+                                                         : RISCV::FNMSUB_S_INX;
+  case RISCV::FSUB_D_INX:
+    return Pattern == RISCVMachineCombinerPattern::FMSUB ? RISCV::FMSUB_D_INX
+                                                         : RISCV::FNMSUB_D_INX;
+  case RISCV::FSUB_D_IN32X:
+    return Pattern == RISCVMachineCombinerPattern::FMSUB
+               ? RISCV::FMSUB_D_IN32X
+               : RISCV::FNMSUB_D_IN32X;
   }
 }
 

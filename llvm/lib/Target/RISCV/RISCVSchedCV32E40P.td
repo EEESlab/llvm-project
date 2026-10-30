@@ -18,7 +18,7 @@
 // ALU in EX and forwarded like any ALU result (latency 1).
 
 defvar CV32E40PFPUAddMulLat = 1;
-defvar CV32E40PFPUOthersLat = 0;
+defvar CV32E40PFPUOthersLat = 1;
 
 def CV32E40PModel : SchedMachineModel {
   let MicroOpBufferSize = 0; // In-order.
