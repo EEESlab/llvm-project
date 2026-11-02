@@ -174,25 +174,23 @@ define void @pr128468(ptr %0, i32 signext %1, i32 signext %2) {
 ; RV64-NEXT:    addi a3, a3, 4
 ; RV64-NEXT:    j .LBB7_4
 ; RV64-NEXT:  .LBB7_3: # in Loop: Header=BB7_4 Depth=1
-; RV64-NEXT:    mv a2, a1
 ; RV64-NEXT:    addi a3, a3, 4
-; RV64-NEXT:    beq a1, a1, .LBB7_6
+; RV64-NEXT:    beq a2, a1, .LBB7_6
 ; RV64-NEXT:  .LBB7_4: # =>This Inner Loop Header: Depth=1
 ; RV64-NEXT:    mv a4, a1
 ; RV64-NEXT:    mv a1, a2
 ; RV64-NEXT:    slli a4, a4, 2
 ; RV64-NEXT:    add a4, a0, a4
-; RV64-NEXT:    lw a4, 0(a4)
-; RV64-NEXT:    slliw a2, a2, 1
-; RV64-NEXT:    slli a5, a2, 2
-; RV64-NEXT:    sw a4, 0(a3)
-; RV64-NEXT:    add a3, a0, a5
-; RV64-NEXT:    lw a4, 4(a3)
-; RV64-NEXT:    bgez a4, .LBB7_3
+; RV64-NEXT:    lw a5, 0(a4)
+; RV64-NEXT:    slliw a4, a2, 1
+; RV64-NEXT:    slli a6, a4, 2
+; RV64-NEXT:    sw a5, 0(a3)
+; RV64-NEXT:    add a3, a0, a6
+; RV64-NEXT:    lw a5, 4(a3)
+; RV64-NEXT:    bgez a5, .LBB7_3
 ; RV64-NEXT:  # %bb.5: # in Loop: Header=BB7_4 Depth=1
-; RV64-NEXT:    addiw a2, a2, 1
-; RV64-NEXT:    addi a3, a3, 4
-; RV64-NEXT:    bne a2, a1, .LBB7_4
+; RV64-NEXT:    addiw a2, a4, 1
+; RV64-NEXT:    j .LBB7_3
 ; RV64-NEXT:  .LBB7_6:
 ; RV64-NEXT:    ret
   %4 = shl nsw i32 %1, 1

@@ -24160,6 +24160,103 @@ static MachineBasicBlock *emitSelectPseudo(MachineInstr &MI,
       break;
   }
 
+  // Choose which select operand travels on the HeadMBB -> TailMBB edge.
+  //
+  // PHI elimination turns each incoming value of the PHI in TailMBB into a
+  // copy at the end of its predecessor. The copy for the HeadMBB edge sits in
+  // HeadMBB before the branch, so it runs on both paths: when IfFalseMBB is
+  // entered the result is already overwritten, and the result cannot share a
+  // register with the value IfFalseMBB reads.
+  //
+  // This is costly for a value carried around a loop and replaced only when
+  // the condition holds, e.g. the index in an arg-max search
+  // (if (cur > max) { row = m; max = cur; }):
+  //
+  //   %old = PHI [ %init, %preheader ], [ %r, %latch ]
+  //   %r   = Select %cond, %new, %old
+  //
+  // Default order, %new on the HeadMBB edge:
+  //
+  //   HeadMBB:     %r = COPY %new           ; every iteration
+  //                BCC %cond, TailMBB
+  //   IfFalseMBB:  %r = COPY %old           ; %old still live here, so %r
+  //                                         ; and %old interfere
+  //   TailMBB:     %r = PHI [ %new, HeadMBB ], [ %old, IfFalseMBB ]
+  //   ...
+  //   latch:       %old = COPY %r           ; carry %r to the next iteration
+  //
+  //   =>  mv a1, s4; bnez a2, Tail; mv a1, s7; j Tail; ...; mv s7, a1
+  //
+  // Swapped order, condition inverted, %old on the HeadMBB edge:
+  //
+  //   HeadMBB:     %r = COPY %old           ; nothing reads %old afterwards,
+  //                BCC !%cond, TailMBB      ; so %r and %old coalesce and
+  //                                         ; this copy disappears
+  //   IfFalseMBB:  %r = COPY %new           ; only when %cond holds
+  //   TailMBB:     %r = PHI [ %old, HeadMBB ], [ %new, IfFalseMBB ]
+  //   ...
+  //   latch:       (no copy: %r and %old are the same register)
+  //
+  //   =>  beqz a2, Tail; mv s7, s4
+  //
+  // Swap when the false value of a select is such a PHI (fed by the select's
+  // result, directly or through a copy, and otherwise read only before the
+  // select sequence, e.g. by the comparison) and the true value is not. For a
+  // group of selects sharing the condition, swap when more of them benefit
+  // than lose; all of them are swapped together since they share the branch.
+  MachineRegisterInfo &MRI = BB->getParent()->getRegInfo();
+  // Instructions before the select sequence: the carried value may also be
+  // read there (e.g. by the comparison that computes the condition) without
+  // staying live into IfFalseMBB.
+  SmallPtrSet<const MachineInstr *, 16> BeforeSelects;
+  for (MachineInstr &BI :
+       make_range(BB->begin(), MachineBasicBlock::iterator(MI)))
+    BeforeSelects.insert(&BI);
+  auto IsCarriedBy = [&](Register V, Register Result) {
+    if (!V.isVirtual())
+      return false;
+    // Every other read must come before the select sequence.
+    for (const MachineInstr &UseMI : MRI.use_nodbg_instructions(V)) {
+      const bool IsThisSelect = RISCVInstrInfo::isSelectPseudo(UseMI) &&
+                                UseMI.getOperand(0).getReg() == Result;
+      if (!IsThisSelect && !BeforeSelects.contains(&UseMI))
+        return false;
+    }
+    const MachineInstr *Def = MRI.getVRegDef(V);
+    if (!Def || !Def->isPHI())
+      return false;
+    for (unsigned I = 1, E = Def->getNumOperands(); I < E; I += 2) {
+      Register In = Def->getOperand(I).getReg();
+      if (In == Result)
+        return true;
+      const MachineInstr *InDef = In.isVirtual() ? MRI.getVRegDef(In) : nullptr;
+      if (InDef && InDef->isCopy() && InDef->getOperand(1).getReg() == Result)
+        return true;
+    }
+    return false;
+  };
+  int SwapVotes = 0;
+  for (auto SelectMBBI = MI.getIterator(),
+            SelectEnd = std::next(LastSelectPseudo->getIterator());
+       SelectMBBI != SelectEnd; ++SelectMBBI) {
+    if (!RISCVInstrInfo::isSelectPseudo(*SelectMBBI))
+      continue;
+    Register Result = SelectMBBI->getOperand(0).getReg();
+    Register TrueV = SelectMBBI->getOperand(4).getReg();
+    Register FalseV = SelectMBBI->getOperand(5).getReg();
+    if (TrueV == FalseV)
+      continue;
+    const bool TrueCarried = IsCarriedBy(TrueV, Result);
+    const bool FalseCarried = IsCarriedBy(FalseV, Result);
+    if (FalseCarried && !TrueCarried)
+      ++SwapVotes;
+    else if (TrueCarried && !FalseCarried)
+      --SwapVotes;
+  }
+  const bool SwapOperands = SwapVotes > 0;
+  if (SwapOperands)
+    CC = RISCVCC::getInverseBranchCondition(CC);
+
   const BasicBlock *LLVM_BB = BB->getBasicBlock();
   DebugLoc DL = MI.getDebugLoc();
   MachineFunction::iterator I = ++BB->getIterator();
@@ -24215,11 +24312,13 @@ static MachineBasicBlock *emitSelectPseudo(MachineInstr &MI,
     auto Next = std::next(SelectMBBI);
     if (RISCVInstrInfo::isSelectPseudo(*SelectMBBI)) {
       // %Result = phi [ %TrueValue, HeadMBB ], [ %FalseValue, IfFalseMBB ]
+      const unsigned HeadOp = SwapOperands ? 5 : 4;
+      const unsigned FalseOp = SwapOperands ? 4 : 5;
       BuildMI(*TailMBB, InsertionPoint, SelectMBBI->getDebugLoc(),
               TII.get(RISCV::PHI), SelectMBBI->getOperand(0).getReg())
-          .addReg(SelectMBBI->getOperand(4).getReg())
+          .addReg(SelectMBBI->getOperand(HeadOp).getReg())
           .addMBB(HeadMBB)
-          .addReg(SelectMBBI->getOperand(5).getReg())
+          .addReg(SelectMBBI->getOperand(FalseOp).getReg())
           .addMBB(IfFalseMBB);
       SelectMBBI->eraseFromParent();
     }
