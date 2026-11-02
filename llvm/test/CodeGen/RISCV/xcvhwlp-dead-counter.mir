@@ -111,3 +111,484 @@ body:             |
     $x10 = ADDI killed $x12, 0
     PseudoRET implicit $x10
 ...
+
+# The countdown shares its register with the trip count: the setup pseudo
+# consumes the count in $x12, and the move after it reloads $x12 with the
+# countdown's start value from $x13. That move belongs to the dead counter and
+# is removed with it, so the trip count is still in $x12 at the setup point.
+---
+name:            count_reg_reloaded
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: count_reg_reloaded
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUP 0, $x12, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   liveins: $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   $x10 = ADDI killed $x13, 0
+  ; CHECK-NEXT:   PseudoRET implicit $x10
+  bb.0:
+    liveins: $x10, $x11, $x12, $x13
+    PseudoCVHWLoopSetup killed renamable $x12
+    $x12 = ADDI renamable $x13, 0
+
+  bb.1:
+    liveins: $x10, $x11, $x12, $x13
+    renamable $x5 = LW renamable $x10, 0
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+    $x14 = ADDI renamable $x12, 0
+    renamable $x14 = PseudoCVHWLoopEnd killed renamable $x14
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x14, $x0, %bb.1
+
+  bb.2:
+    liveins: $x13
+    $x10 = ADDI killed $x13, 0
+    PseudoRET implicit $x10
+...
+
+# Same shape, but the reloaded register is used after the loop: the move must
+# stay, it clobbers the trip count, and the loop is not converted.
+---
+name:            count_reg_reloaded_live_out
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: count_reg_reloaded_live_out
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopSetup killed renamable $x12
+  ; CHECK-NEXT:   $x12 = ADDI renamable $x13, 0
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.1(0x40000000), %bb.2(0x40000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+  ; CHECK-NEXT:   $x12 = PseudoCVHWLoopEnd $x12
+  ; CHECK-NEXT:   BNE $x12, $x0, %bb.1
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   liveins: $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   $x10 = ADDI killed $x12, 0
+  ; CHECK-NEXT:   PseudoRET implicit $x10
+  bb.0:
+    liveins: $x10, $x11, $x12, $x13
+    PseudoCVHWLoopSetup killed renamable $x12
+    $x12 = ADDI renamable $x13, 0
+
+  bb.1:
+    liveins: $x10, $x11, $x12, $x13
+    renamable $x5 = LW renamable $x10, 0
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+    $x14 = ADDI renamable $x12, 0
+    renamable $x14 = PseudoCVHWLoopEnd killed renamable $x14
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x14, $x0, %bb.1
+
+  bb.2:
+    liveins: $x12
+    $x10 = ADDI killed $x12, 0
+    PseudoRET implicit $x10
+...
+
+# A constant trip count: cv.setupi takes the count as an immediate, and the
+# countdown starts from a load immediate after the setup pseudo. Both the load
+# immediate and the decrement are removed.
+---
+name:            imm_count
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: imm_count
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUPI 0, 100, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x13 = LW renamable $x11, 0
+  ; CHECK-NEXT:   renamable $x13 = ADDI killed renamable $x13, 1
+  ; CHECK-NEXT:   SW killed renamable $x13, renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x10 = ADDI killed renamable $x10, 4
+  ; CHECK-NEXT:   renamable $x11 = ADDI killed renamable $x11, 4
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   PseudoRET
+  bb.0:
+    liveins: $x10, $x11
+    PseudoCVHWLoopSetupImm 100
+    renamable $x12 = ADDI $x0, 100
+
+  bb.1:
+    liveins: $x10, $x11, $x12
+    renamable $x13 = LW renamable $x11, 0
+    renamable $x13 = ADDI killed renamable $x13, 1
+    $x14 = ADDI renamable $x12, 0
+    SW killed renamable $x13, renamable $x10, 0
+    renamable $x14 = PseudoCVHWLoopEnd killed renamable $x14
+    renamable $x10 = ADDI killed renamable $x10, 4
+    renamable $x11 = ADDI killed renamable $x11, 4
+    renamable $x12 = nsw ADDI killed renamable $x12, -1
+    BNE killed renamable $x14, $x0, %bb.1
+
+  bb.2:
+    PseudoRET
+...
+
+# Same, but the countdown is used after the loop: nothing is removed.
+---
+name:            imm_count_live_out
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: imm_count_live_out
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x12 = ADDI $x0, 100
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUPI 0, 100, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x13 = LW renamable $x11, 0
+  ; CHECK-NEXT:   renamable $x13 = ADDI killed renamable $x13, 1
+  ; CHECK-NEXT:   $x14 = ADDI renamable $x12, 0
+  ; CHECK-NEXT:   SW killed renamable $x13, renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x10 = ADDI killed renamable $x10, 4
+  ; CHECK-NEXT:   renamable $x11 = ADDI killed renamable $x11, 4
+  ; CHECK-NEXT:   renamable $x12 = nsw ADDI killed renamable $x12, -1
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   liveins: $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   $x10 = ADDI killed $x12, 0
+  ; CHECK-NEXT:   PseudoRET implicit $x10
+  bb.0:
+    liveins: $x10, $x11
+    PseudoCVHWLoopSetupImm 100
+    renamable $x12 = ADDI $x0, 100
+
+  bb.1:
+    liveins: $x10, $x11, $x12
+    renamable $x13 = LW renamable $x11, 0
+    renamable $x13 = ADDI killed renamable $x13, 1
+    $x14 = ADDI renamable $x12, 0
+    SW killed renamable $x13, renamable $x10, 0
+    renamable $x14 = PseudoCVHWLoopEnd killed renamable $x14
+    renamable $x10 = ADDI killed renamable $x10, 4
+    renamable $x11 = ADDI killed renamable $x11, 4
+    renamable $x12 = nsw ADDI killed renamable $x12, -1
+    BNE killed renamable $x14, $x0, %bb.1
+
+  bb.2:
+    liveins: $x12
+    $x10 = ADDI killed $x12, 0
+    PseudoRET implicit $x10
+...
+
+# $x14 holds another value that is read in the preheader before the move that
+# starts the countdown from $x13. That read does not see the countdown, so the
+# move is still dead and is removed.
+---
+name:            counter_init_after_read
+tracksRegLiveness: true
+body:             |
+  ; CHECK-LABEL: name: counter_init_after_read
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13, $x14
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x11 = ADD killed renamable $x11, killed renamable $x14
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUP 0, $x12, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x14
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5, renamable $x10 = CV_LW_ri_inc killed renamable $x10, 4
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   liveins: $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   $x10 = ADDI killed $x12, 0
+  ; CHECK-NEXT:   PseudoRET implicit $x10
+  bb.0:
+    liveins: $x10, $x11, $x12, $x13, $x14
+    renamable $x11 = ADD killed renamable $x11, killed renamable $x14
+    PseudoCVHWLoopSetup renamable $x12
+    $x14 = ADDI killed $x13, 0
+
+  bb.1:
+    liveins: $x10, $x11, $x12, $x14
+    renamable $x5, renamable $x10 = CV_LW_ri_inc killed renamable $x10, 4
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+    $x7 = ADDI renamable $x14, 0
+    renamable $x7 = PseudoCVHWLoopEnd killed renamable $x7
+    renamable $x14 = ADDI killed renamable $x14, -1
+    BNE killed renamable $x7, $x0, %bb.1
+
+  bb.2:
+    liveins: $x12
+    $x10 = ADDI killed $x12, 0
+    PseudoRET implicit $x10
+...
+
+# The setup pseudo is not in the preheader, so the loop is not a conversion
+# candidate. The latch still carries both the copy that feeds the loop-end
+# pseudo and LSR's countdown; they are folded into one counter.
+---
+name:            setup_not_in_preheader
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 4 }
+body:             |
+  ; CHECK-LABEL: name: setup_not_in_preheader
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x40000000), %bb.3(0x40000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopSetup renamable $x12
+  ; CHECK-NEXT:   SW killed renamable $x12, $x2, 0 :: (store (s32) into %stack.0)
+  ; CHECK-NEXT:   BEQ renamable $x11, $x0, %bb.3
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x12 = LW $x2, 0 :: (load (s32) from %stack.0)
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   successors: %bb.2(0x40000000), %bb.3(0x40000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+  ; CHECK-NEXT:   $x12 = PseudoCVHWLoopEnd $x12
+  ; CHECK-NEXT:   BNE $x12, $x0, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.3:
+  ; CHECK-NEXT:   PseudoRET
+  bb.0:
+    successors: %bb.1, %bb.3
+    liveins: $x10, $x11, $x12
+    PseudoCVHWLoopSetup renamable $x12
+    SW killed renamable $x12, $x2, 0 :: (store (s32) into %stack.0)
+    BEQ renamable $x11, $x0, %bb.3
+
+  bb.1:
+    liveins: $x10, $x11
+    renamable $x12 = LW $x2, 0 :: (load (s32) from %stack.0)
+
+  bb.2:
+    successors: %bb.2, %bb.3
+    liveins: $x10, $x11, $x12
+    renamable $x5 = LW renamable $x10, 0
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    $x13 = ADDI renamable $x12, 0
+    renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+    renamable $x13 = PseudoCVHWLoopEnd killed renamable $x13
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x13, $x0, %bb.2
+
+  bb.3:
+    PseudoRET
+...
+
+# Same, but the countdown is read between the loop-end pseudo and its
+# decrement: there it still holds the old value, so nothing is folded.
+---
+name:            setup_not_in_preheader_read
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 4 }
+body:             |
+  ; CHECK-LABEL: name: setup_not_in_preheader_read
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x40000000), %bb.3(0x40000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopSetup renamable $x12
+  ; CHECK-NEXT:   SW killed renamable $x12, $x2, 0 :: (store (s32) into %stack.0)
+  ; CHECK-NEXT:   BEQ renamable $x11, $x0, %bb.3
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x12 = LW $x2, 0 :: (load (s32) from %stack.0)
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   successors: %bb.2(0x40000000), %bb.3(0x40000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   $x13 = ADDI renamable $x12, 0
+  ; CHECK-NEXT:   renamable $x13 = PseudoCVHWLoopEnd killed renamable $x13
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_rr_inc killed renamable $x5, killed renamable $x10, renamable $x12
+  ; CHECK-NEXT:   renamable $x12 = ADDI killed renamable $x12, -1
+  ; CHECK-NEXT:   BNE killed renamable $x13, $x0, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.3:
+  ; CHECK-NEXT:   PseudoRET
+  bb.0:
+    successors: %bb.1, %bb.3
+    liveins: $x10, $x11, $x12
+    PseudoCVHWLoopSetup renamable $x12
+    SW killed renamable $x12, $x2, 0 :: (store (s32) into %stack.0)
+    BEQ renamable $x11, $x0, %bb.3
+
+  bb.1:
+    liveins: $x10, $x11
+    renamable $x12 = LW $x2, 0 :: (load (s32) from %stack.0)
+
+  bb.2:
+    successors: %bb.2, %bb.3
+    liveins: $x10, $x11, $x12
+    renamable $x5 = LW renamable $x10, 0
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    $x13 = ADDI renamable $x12, 0
+    renamable $x13 = PseudoCVHWLoopEnd killed renamable $x13
+    renamable $x10 = CV_SW_rr_inc killed renamable $x5, killed renamable $x10, renamable $x12
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x13, $x0, %bb.2
+
+  bb.3:
+    PseudoRET
+...
+
+# The trip count register is reused for a reload after the setup pseudo, but
+# the move that starts the countdown copied it first. The setup reads the copy,
+# which is kept; the countdown in the body is removed.
+---
+name:            count_copy_survives
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 4 }
+body:             |
+  ; CHECK-LABEL: name: count_copy_survives
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   $x12 = ADDI killed renamable $x13, 0
+  ; CHECK-NEXT:   renamable $x13 = LW $x2, 0 :: (load (s32) from %stack.0)
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUP 0, $x12, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12, $x13
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x14 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x15 = LW renamable $x13, 0
+  ; CHECK-NEXT:   renamable $x13 = CV_SW_ri_inc killed renamable $x14, killed renamable $x13, 4
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x15, killed renamable $x10, 4
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   PseudoRET
+  bb.0:
+    liveins: $x10, $x11, $x13
+    PseudoCVHWLoopSetup renamable $x13
+    $x12 = ADDI killed renamable $x13, 0
+    renamable $x13 = LW $x2, 0 :: (load (s32) from %stack.0)
+
+  bb.1:
+    liveins: $x10, $x11, $x12, $x13
+    renamable $x14 = LW renamable $x10, 0
+    renamable $x15 = LW renamable $x13, 0
+    renamable $x13 = CV_SW_ri_inc killed renamable $x14, killed renamable $x13, 4
+    $x16 = ADDI renamable $x12, 0
+    renamable $x10 = CV_SW_ri_inc killed renamable $x15, killed renamable $x10, 4
+    renamable $x16 = PseudoCVHWLoopEnd killed renamable $x16
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x16, $x0, %bb.1
+
+  bb.2:
+    PseudoRET
+...
+
+# The countdown was spilled in the parent loop: it starts from a reload into
+# the trip count register after the setup pseudo. The reload is dead once the
+# countdown is gone, so it is removed and the setup reads the trip count.
+---
+name:            counter_init_reload
+tracksRegLiveness: true
+stack:
+  - { id: 0, type: spill-slot, size: 4, alignment: 4 }
+body:             |
+  ; CHECK-LABEL: name: counter_init_reload
+  ; CHECK: bb.0:
+  ; CHECK-NEXT:   successors: %bb.1(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCBegin
+  ; CHECK-NEXT:   CV_SETUP 0, $x12, %bb.2
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.1:
+  ; CHECK-NEXT:   successors: %bb.2(0x80000000)
+  ; CHECK-NEXT:   liveins: $x10, $x11, $x12
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT:   renamable $x5 = LW renamable $x10, 0
+  ; CHECK-NEXT:   renamable $x5 = ADD killed renamable $x5, renamable $x11
+  ; CHECK-NEXT:   renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+  ; CHECK-NEXT: {{  $}}
+  ; CHECK-NEXT: bb.2:
+  ; CHECK-NEXT:   PseudoCVHWLoopNoRVCEnd
+  ; CHECK-NEXT:   PseudoRET
+  bb.0:
+    liveins: $x10, $x11, $x12
+    PseudoCVHWLoopSetup renamable $x12
+    renamable $x12 = LW $x2, 0 :: (load (s32) from %stack.0)
+
+  bb.1:
+    liveins: $x10, $x11, $x12
+    renamable $x5 = LW renamable $x10, 0
+    renamable $x5 = ADD killed renamable $x5, renamable $x11
+    renamable $x10 = CV_SW_ri_inc killed renamable $x5, killed renamable $x10, 4
+    $x13 = ADDI renamable $x12, 0
+    renamable $x13 = PseudoCVHWLoopEnd killed renamable $x13
+    renamable $x12 = ADDI killed renamable $x12, -1
+    BNE killed renamable $x13, $x0, %bb.1
+
+  bb.2:
+    PseudoRET
+...

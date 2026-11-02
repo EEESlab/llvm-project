@@ -75,6 +75,25 @@ bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
   HWLoopInfo.PerformEntryTest = false;
   HWLoopInfo.IsNestingLegal = true;
 
+  // A call cannot be part of a hardware loop body: the callee may use the
+  // hardware loop registers itself. Such a loop is rejected when the machine
+  // code is converted, but by then LSR has already built a second, software
+  // countdown next to the hardware-loop intrinsics, which costs an extra
+  // register and induction variable for the whole loop.
+  for (BasicBlock *BB : L->blocks())
+    for (Instruction &I : *BB)
+      if (auto *Call = dyn_cast<CallBase>(&I)) {
+        // A library function still called at this point is a real call:
+        // the ones that lower to an instruction have become intrinsics.
+        // isLoweredToCall() does not tell, it treats e.g. fabs and sin as
+        // cheap by name. Intrinsics are kept, except memory intrinsics.
+        if (isa<InlineAsm>(Call->getCalledOperand()))
+          continue;
+        const Function *F = Call->getCalledFunction();
+        if (!F || !F->isIntrinsic() || isa<MemIntrinsic>(Call))
+          return Report(false, "contains a call");
+      }
+
   ArrayRef<Loop *> SubLoops = L->getSubLoops();
 
   if (SubLoops.empty())

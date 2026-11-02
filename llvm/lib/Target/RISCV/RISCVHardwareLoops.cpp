@@ -62,6 +62,7 @@
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
 #include "llvm/CodeGen/MachineLoopInfo.h"
+#include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/InitializePasses.h"
 #include "llvm/Support/Alignment.h"
@@ -219,7 +220,7 @@ private:
   bool tryConvertCandidate(CVHWLoopCandidate &Candidate, unsigned LoopID,
                            bool IsOuter);
 
-  bool foldDuplicateCounter(CVHWLoopCandidate &Candidate) const;
+  bool foldDuplicateCounter(MachineInstr &LoopEnd) const;
 };
 
 } // end anonymous namespace
@@ -572,12 +573,74 @@ static bool isCountClobberedAtSetupPoint(const CVHWLoopCandidate &Candidate,
 
   LLVM_DEBUG(dbgs() << "    count reg: " << printReg(Count.Reg, &TRI) << "\n");
   for (; I != E; ++I)
-    if (I->modifiesRegister(Count.Reg, &TRI)) {
+    // The counter initialization is erased on conversion.
+    if (!is_contained(Candidate.DeadCounter, &*I) &&
+        I->modifiesRegister(Count.Reg, &TRI)) {
       LLVM_DEBUG(dbgs() << "    clobbered by: " << *I);
       return true;
     }
 
   return false;
+}
+
+/// The trip count register can be reused after the setup pseudo while a copy
+/// of it is still intact at the setup point, typically the move that starts
+/// LSR's countdown:
+///
+///     PseudoCVHWLoopSetup $x13
+///     $x12 = ADDI killed $x13, 0    ; countdown start
+///     $x13 = LW %stack.2            ; $x13 reused
+///
+/// Return a register that holds the trip count at the end of the preheader.
+/// A move that produces it is kept, even if it was collected as part of the
+/// dead counter: it now feeds the setup.
+static std::optional<Register>
+findCountCopyAtSetupPoint(CVHWLoopCandidate &Candidate,
+                          const CVHWLoopCount &Count,
+                          const TargetRegisterInfo &TRI) {
+  if (Count.IsImmediate ||
+      Candidate.Setup->getParent() != Candidate.Preheader)
+    return std::nullopt;
+
+  // Registers holding the trip count, with the move that produced each one.
+  SmallVector<std::pair<Register, MachineInstr *>, 4> Equal;
+  Equal.push_back({Count.Reg, nullptr});
+  auto Find = [&](Register R) {
+    return find_if(Equal, [&](const auto &E) { return E.first == R; });
+  };
+
+  for (MachineInstr &MI :
+       make_range(std::next(MachineBasicBlock::iterator(Candidate.Setup)),
+                  Candidate.Preheader->getFirstTerminator())) {
+    const bool IsMove =
+        (MI.isCopy() ||
+         (MI.getOpcode() == RISCV::ADDI && MI.getOperand(2).isImm() &&
+          MI.getOperand(2).getImm() == 0)) &&
+        MI.getOperand(0).isReg() && MI.getOperand(1).isReg();
+    if (IsMove && Find(MI.getOperand(1).getReg()) != Equal.end()) {
+      Register Dst = MI.getOperand(0).getReg();
+      auto It = Find(Dst);
+      if (It != Equal.end())
+        It->second = &MI;
+      else
+        Equal.push_back({Dst, &MI});
+      continue;
+    }
+
+    erase_if(Equal, [&](const auto &E) {
+      return MI.modifiesRegister(E.first, &TRI);
+    });
+    if (Equal.empty())
+      return std::nullopt;
+  }
+
+  if (Equal.empty())
+    return std::nullopt;
+
+  auto [Reg, Def] = Equal.front();
+  if (Def)
+    erase(Candidate.DeadCounter, Def);
+  return Reg;
 }
 
 /// Collect the software counter LSR built alongside the hardware loop.
@@ -593,11 +656,6 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
                                     const CVHWLoopCount &Count,
                                     const TargetRegisterInfo &TRI) {
   Candidate.DeadCounter.clear();
-
-  if (Count.IsImmediate) {
-    LLVM_DEBUG(dbgs() << "  counter: immediate count, nothing to remove\n");
-    return;
-  }
 
   auto IsMove = [](const MachineInstr &MI) {
     return (MI.isCopy() ||
@@ -619,14 +677,42 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
     }
   }
 
+  // The move that initializes the counter in the preheader. The counter may
+  // also share its register with the trip count: the setup pseudo consumes
+  // the trip count, and a move after it reloads the register with the
+  // countdown's start value. That move is part of the counter as well, and
+  // left in place it would clobber the trip count before the setup point.
+  // A definition before the setup pseudo is the trip count itself and stays.
+  // With a constant trip count, the countdown starts from a load immediate.
+  // A countdown that was spilled in the parent loop starts from a reload.
+  auto IsInit = [&](const MachineInstr &MI) {
+    if (!MI.getOperand(0).isReg() || MI.getOperand(0).getReg() != CounterReg)
+      return false;
+    if (IsMove(MI))
+      return true;
+    if (MI.getOpcode() == RISCV::LW && MI.hasOneMemOperand()) {
+      const MachineMemOperand *MMO = *MI.memoperands_begin();
+      if (!MMO->isVolatile() && !MMO->isAtomic() && MMO->getPseudoValue() &&
+          isa<FixedStackPseudoSourceValue>(MMO->getPseudoValue()))
+        return true;
+    }
+    return Count.IsImmediate && MI.getOpcode() == RISCV::ADDI &&
+           MI.getOperand(1).isReg() && MI.getOperand(1).getReg() == RISCV::X0 &&
+           MI.getOperand(2).isImm();
+  };
+
+  const bool SharesCountReg = !Count.IsImmediate && CounterReg == Count.Reg;
   MachineInstr *CounterInit = nullptr;
-  if (CounterReg != Count.Reg)
-    for (MachineInstr &MI : reverse(*Candidate.Preheader))
+  if (!SharesCountReg || Candidate.Setup->getParent() == Candidate.Preheader)
+    for (MachineInstr &MI : reverse(*Candidate.Preheader)) {
+      if (SharesCountReg && &MI == Candidate.Setup)
+        break;
       if (MI.modifiesRegister(CounterReg, &TRI)) {
-        if (IsMove(MI) && MI.getOperand(0).getReg() == CounterReg)
+        if (IsInit(MI))
           CounterInit = &MI;
         break;
       }
+    }
 
   LLVM_DEBUG(dbgs() << "  counter: " << printReg(CounterReg, &TRI)
                     << " feeds the loop end\n");
@@ -700,8 +786,10 @@ static void findDeadSoftwareCounter(CVHWLoopCandidate &Candidate,
       ReadAnywhere = true;
     }
 
-    for (MachineInstr &MI : *Candidate.Preheader)
-      if (&MI != CounterInit && MI.readsRegister(CounterReg, &TRI)) {
+    // Only reads after the move see the value it produces.
+    for (MachineInstr &MI : make_range(std::next(MachineBasicBlock::iterator(CounterInit)),
+                                       Candidate.Preheader->end()))
+      if (MI.readsRegister(CounterReg, &TRI)) {
         LLVM_DEBUG(dbgs() << "  counter init: read in preheader by: " << MI);
         ReadAnywhere = true;
       }
@@ -1053,17 +1141,12 @@ RISCVHardwareLoops::analyzeLoop(MachineLoop &ML) const {
 
 bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
                                           unsigned LoopID, bool IsOuter) {
-  if (tryConvertCandidate(Candidate, LoopID, IsOuter))
-    return true;
-
-  foldDuplicateCounter(Candidate);
-
-  return false;
+  return tryConvertCandidate(Candidate, LoopID, IsOuter);
 }
 
-/// A rejected loop keeps PseudoCVHWLoopEnd, which is later expanded to
-/// "addi Tmp, Tmp, -1". Next to it sits the countdown LSR created (see
-/// findDeadSoftwareCounter()), so the latch ends up as
+/// A loop that is not converted keeps PseudoCVHWLoopEnd, which is later
+/// expanded to "addi Tmp, Tmp, -1". Next to it sits the countdown LSR created
+/// (see findDeadSoftwareCounter()), so the latch ends up as
 ///
 ///     Tmp = COPY Counter            ; feeds the pseudo's tied operand
 ///     Tmp = PseudoCVHWLoopEnd Tmp   ; -> addi Tmp, Tmp, -1
@@ -1075,99 +1158,95 @@ bool RISCVHardwareLoops::convertCandidate(CVHWLoopCandidate &Candidate,
 ///
 ///     Counter = PseudoCVHWLoopEnd Counter
 ///     branch on Counter
-bool RISCVHardwareLoops::foldDuplicateCounter(
-    CVHWLoopCandidate &Candidate) const {
-  MachineInstr *LoopEnd = Candidate.LoopEnd;
-  MachineBasicBlock *Latch = Candidate.Latch;
+///
+/// This only looks at the latch, so it also applies to loops that were never
+/// conversion candidates, e.g. because the setup pseudo is not in the
+/// preheader.
+bool RISCVHardwareLoops::foldDuplicateCounter(MachineInstr &LoopEnd) const {
+  MachineBasicBlock &Latch = *LoopEnd.getParent();
 
-  // findDeadSoftwareCounter() runs only once the trip count is known; with
-  // nothing found there is nothing to fold.
-  if (Candidate.DeadCounter.empty())
+  if (!LoopEnd.getOperand(0).isReg() || !LoopEnd.getOperand(1).isReg())
+    return false;
+  const Register Tmp = LoopEnd.getOperand(0).getReg();
+  if (LoopEnd.getOperand(1).getReg() != Tmp)
     return false;
 
-  const Register Tmp = LoopEnd->getOperand(0).getReg();
-  if (!LoopEnd->getOperand(1).isReg() ||
-      LoopEnd->getOperand(1).getReg() != Tmp)
-    return false;
-
-  // The dead counter must be exactly one copy into Tmp and one decrement by
-  // one, both in the latch. The copy that initializes the counter in the
-  // preheader may also be listed; it is still needed and stays.
+  // The move into Tmp feeding the pseudo, with nothing else touching Tmp, and
+  // the source unchanged, in between.
   MachineInstr *Copy = nullptr;
-  MachineInstr *Decrement = nullptr;
-  for (MachineInstr *MI : Candidate.DeadCounter) {
-    if (MI->getParent() != Latch)
-      continue;
-
-    const bool IsMove =
-        MI->isCopy() ||
-        (MI->getOpcode() == RISCV::ADDI && MI->getOperand(2).isImm() &&
-         MI->getOperand(2).getImm() == 0);
-    if (IsMove && MI->getOperand(0).getReg() == Tmp &&
-        MI->getOperand(1).isReg()) {
-      if (Copy)
-        return false;
-      Copy = MI;
-      continue;
+  for (MachineBasicBlock::iterator I = LoopEnd.getIterator(), B = Latch.begin();
+       I != B;) {
+    --I;
+    if (I->modifiesRegister(Tmp, TRI)) {
+      const bool IsMove =
+          I->isCopy() ||
+          (I->getOpcode() == RISCV::ADDI && I->getOperand(1).isReg() &&
+           I->getOperand(2).isImm() && I->getOperand(2).getImm() == 0);
+      if (IsMove && I->getOperand(0).getReg() == Tmp &&
+          I->getOperand(1).isReg() && I->getOperand(1).getReg() != Tmp &&
+          I->getOperand(1).getReg() != RISCV::X0)
+        Copy = &*I;
+      break;
     }
-
-    if (MI->getOpcode() == RISCV::ADDI && MI->getOperand(1).isReg() &&
-        MI->getOperand(2).isImm() && MI->getOperand(2).getImm() == -1 &&
-        MI->getOperand(0).getReg() == MI->getOperand(1).getReg()) {
-      if (Decrement)
-        return false;
-      Decrement = MI;
-      continue;
-    }
-
-    return false;
+    if (I->readsRegister(Tmp, TRI))
+      return false;
   }
-
-  if (!Copy || !Decrement)
+  if (!Copy)
     return false;
 
   const Register Counter = Copy->getOperand(1).getReg();
-  if (Counter == Tmp || Decrement->getOperand(0).getReg() != Counter)
-    return false;
+  for (MachineInstr &MI :
+       make_range(std::next(MachineBasicBlock::iterator(Copy)),
+                  MachineBasicBlock::iterator(LoopEnd)))
+    if (MI.modifiesRegister(Counter, TRI))
+      return false;
 
-  // The copy must read the counter before LSR's decrement overwrites it,
-  // otherwise the branch tests a value one lower than the fold produces.
-  for (MachineInstr &MI : *Latch) {
-    if (&MI == Copy)
-      break;
-    if (&MI == Decrement)
+  // LSR's decrement after the pseudo. In between, Counter must not be read
+  // or written: after the fold it already holds the decremented value there.
+  // Tmp must only be read by the loop branch.
+  MachineInstr *Decrement = nullptr;
+  MachineInstr *Branch = nullptr;
+  for (MachineInstr &MI :
+       make_range(std::next(MachineBasicBlock::iterator(LoopEnd)), Latch.end())) {
+    if (MI.readsRegister(Tmp, TRI)) {
+      if (Branch || !MI.isConditionalBranch())
+        return false;
+      Branch = &MI;
+    }
+    if (MI.modifiesRegister(Tmp, TRI))
+      return false;
+
+    if (Decrement)
+      continue;
+    if (MI.getOpcode() == RISCV::ADDI && MI.getOperand(0).getReg() == Counter &&
+        MI.getOperand(1).isReg() && MI.getOperand(1).getReg() == Counter &&
+        MI.getOperand(2).isImm() && MI.getOperand(2).getImm() == -1) {
+      if (Branch)
+        return false;
+      Decrement = &MI;
+      continue;
+    }
+    if (MI.readsRegister(Counter, TRI) || MI.modifiesRegister(Counter, TRI))
       return false;
   }
-
-  // Tmp must be private to the loop control: read only by the pseudo and the
-  // loop branch, not live into the header and not live out of the loop.
-  if (Candidate.Header->isLiveIn(Tmp))
+  if (!Decrement || !Branch)
     return false;
 
-  for (MachineBasicBlock *MBB : Candidate.Blocks)
-    for (MachineInstr &MI : *MBB) {
-      if (&MI == Copy || &MI == LoopEnd || &MI == Candidate.LoopBranch)
-        continue;
-      if (MI.readsRegister(Tmp, TRI) || MI.modifiesRegister(Tmp, TRI))
-        return false;
-    }
-
-  LivePhysRegs LPR(*TRI);
-  LPR.addLiveOuts(*Candidate.Exit);
-  for (MachineInstr &MI : reverse(*Candidate.Exit))
-    LPR.stepBackward(MI);
-  if (LPR.contains(Tmp))
-    return false;
+  // Tmp must be dead on leaving the latch.
+  for (MachineBasicBlock *Succ : Latch.successors())
+    if (Succ->isLiveIn(Tmp))
+      return false;
 
   LLVM_DEBUG(dbgs() << "  folding duplicate counter " << printReg(Tmp, TRI)
-                    << " into " << printReg(Counter, TRI) << "\n");
+                    << " into " << printReg(Counter, TRI) << " in "
+                    << printMBBReference(Latch) << "\n");
 
   // Counter is still live across the backedge, so none of its uses kill it.
-  LoopEnd->getOperand(0).setReg(Counter);
-  LoopEnd->getOperand(1).setReg(Counter);
-  LoopEnd->getOperand(1).setIsKill(false);
+  LoopEnd.getOperand(0).setReg(Counter);
+  LoopEnd.getOperand(1).setReg(Counter);
+  LoopEnd.getOperand(1).setIsKill(false);
 
-  for (MachineOperand &MO : Candidate.LoopBranch->operands())
+  for (MachineOperand &MO : Branch->operands())
     if (MO.isReg() && MO.getReg() == Tmp) {
       MO.setReg(Counter);
       MO.setIsKill(false);
@@ -1238,8 +1317,14 @@ bool RISCVHardwareLoops::tryConvertCandidate(CVHWLoopCandidate &Candidate,
   }
 
   if (isCountClobberedAtSetupPoint(Candidate, *Count, *TRI)) {
-    LLVM_DEBUG(dbgs() << "  trip count is clobbered before the setup point\n");
-    return false;
+    std::optional<Register> Copy = findCountCopyAtSetupPoint(Candidate, *Count, *TRI);
+    if (!Copy) {
+      LLVM_DEBUG(dbgs() << "  trip count is clobbered before the setup point\n");
+      return false;
+    }
+    LLVM_DEBUG(dbgs() << "  trip count is clobbered; reading its copy "
+                      << printReg(*Copy, TRI) << " instead\n");
+    Count->Reg = *Copy;
   }
 
   // An exit block already pinned by another hardware loop (typically a shared
@@ -1401,6 +1486,15 @@ bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   bool Changed = false;
   for (MachineLoop *TopLevelLoop : TopLevelLoops)
     Changed |= processLoopTree(*TopLevelLoop);
+
+  // Loops left in software keep their loop-end pseudo.
+  SmallVector<MachineInstr *, 8> LoopEnds;
+  for (MachineBasicBlock &MBB : MF)
+    for (MachineInstr &MI : MBB)
+      if (MI.getOpcode() == RISCV::PseudoCVHWLoopEnd)
+        LoopEnds.push_back(&MI);
+  for (MachineInstr *LoopEnd : LoopEnds)
+    Changed |= foldDuplicateCounter(*LoopEnd);
 
   if (Changed)
     MF.RenumberBlocks();
