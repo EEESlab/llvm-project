@@ -580,9 +580,37 @@ static bool RunTermFold(Loop *L, ScalarEvolution &SE, DominatorTree &DT,
   assert(Expander.isSafeToExpand(TermValueS) &&
          "Terminating value was checked safe in canFoldTerminatingCondition");
 
-  // Create new terminating value at loop preheader
-  Value *TermValue = Expander.expandCodeFor(TermValueS, ToHelpFold->getType(),
-                                            LoopPreheader->getTerminator());
+  // Create new terminating value at loop preheader. In a nested loop the start
+  // of the IV usually varies with the parent loop, e.g. a row pointer, and
+  // expanding the terminating value from scratch recomputes it with a multiply
+  // by the parent's counter in every parent iteration. When the distance from
+  // the start does not vary in the parent loop, add it to the start value
+  // that is already available instead: one add per parent iteration, with
+  // the distance computed outside the parent loop.
+  Value *TermValue = nullptr;
+  Instruction *PreheaderTerm = LoopPreheader->getTerminator();
+  const Loop *Parent = L->getParentLoop();
+  const SCEV *DistS = SE.getMinusSCEV(TermValueS, SE.getSCEV(StartValue));
+  if (Parent && !isa<SCEVCouldNotCompute>(DistS) &&
+      !SE.isLoopInvariant(TermValueS, Parent) &&
+      SE.isLoopInvariant(DistS, Parent) &&
+      Expander.isSafeToExpandAt(DistS, PreheaderTerm)) {
+    IRBuilder<> PHBuilder(PreheaderTerm);
+    Value *Dist = Expander.expandCodeFor(DistS, DistS->getType(), PreheaderTerm);
+    PHBuilder.SetInsertPoint(PreheaderTerm);
+    TermValue =
+        ToHelpFold->getType()->isPointerTy()
+            ? PHBuilder.CreatePtrAdd(StartValue, Dist, "lsr_fold_term_cond.end")
+            : PHBuilder.CreateAdd(
+                  StartValue,
+                  PHBuilder.CreateSExtOrTrunc(Dist, StartValue->getType()),
+                  "lsr_fold_term_cond.end");
+    LLVM_DEBUG(dbgs() << "Terminating value from the start value plus "
+                      << *DistS << "\n");
+  } else {
+    TermValue = Expander.expandCodeFor(TermValueS, ToHelpFold->getType(),
+                                       PreheaderTerm);
+  }
 
   LLVM_DEBUG(dbgs() << "Start value of new term-cond phi-node:\n"
                     << *StartValue << "\n"

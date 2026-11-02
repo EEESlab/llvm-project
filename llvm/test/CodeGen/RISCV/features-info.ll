@@ -76,6 +76,7 @@
 ; CHECK-NEXT:   h                                - 'H' (Hypervisor).
 ; CHECK-NEXT:   i                                - 'I' (Base Integer Instruction Set).
 ; CHECK-NEXT:   log-vrgather                     - Has vrgather.vv with LMUL*log2(LMUL) latency
+; CHECK-NEXT:   lsr-outer-loops                  - Let LSR rewrite load/store addresses in outer loops.
 ; CHECK-NEXT:   m                                - 'M' (Integer Multiplication and Division).
 ; CHECK-NEXT:   mips-p8700                       - MIPS p8700 processor.
 ; CHECK-NEXT:   no-default-unroll                - Disable default unroll preference.

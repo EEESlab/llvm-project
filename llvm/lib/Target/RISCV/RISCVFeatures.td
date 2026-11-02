@@ -2068,6 +2068,11 @@ def TuneDLenFactor2
    : SubtargetFeature<"dlen-factor-2", "DLenFactor2", "true",
                       "Vector unit DLEN(data path width) is half of VLEN">;
 
+def TuneLSROuterLoops
+    : RISCVSimpleTuneFeature<"lsr-outer-loops", "EnableLSROuterLoops", "true",
+                             "Let LSR rewrite load/store addresses in outer "
+                             "loops">;
+
 def TuneNoDefaultUnroll
     : RISCVTuneFeature<"no-default-unroll", "no-default-unroll",
                        "enable-default-unroll", "EnableDefaultUnroll", "false",

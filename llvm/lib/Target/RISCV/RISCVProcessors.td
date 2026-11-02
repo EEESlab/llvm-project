@@ -134,7 +134,8 @@ def CV32E40P : RISCVProcessorModel<"cv32e40p",
                                     FeatureVendorXCVmac,
                                     FeatureVendorXCVmem,
                                     FeatureVendorXCVsimd],
-                                   [TunePostRAScheduler]>;
+                                   [TunePostRAScheduler,
+                                    TuneLSROuterLoops]>;
 
 def MIPS_P8700 : RISCVProcessorModel<"mips-p8700",
                                      MIPSP8700Model,

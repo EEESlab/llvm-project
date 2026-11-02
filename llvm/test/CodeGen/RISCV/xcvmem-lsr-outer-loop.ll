@@ -3,10 +3,14 @@
 ; RUN:   < %s | FileCheck %s --check-prefix=XCV
 ; RUN: llc -O3 -mtriple=riscv32 -mattr=+m,+zfinx -verify-machineinstrs \
 ; RUN:   < %s | FileCheck %s --check-prefix=NOXCV
+; RUN: llc -O3 -mtriple=riscv32 -mattr=+m,+zfinx -mtune=cv32e40p \
+; RUN:   -verify-machineinstrs < %s | FileCheck %s --check-prefix=TUNE
 
 ; With XCVmem, LSR also processes outer loops, rewriting only the load/store
 ; addresses in the outer loop's own blocks. IV users inside subloops, the
 ; exit compare and other arithmetic are left untouched.
+; -mtune=cv32e40p asks for the same without XCVmem (tune feature
+; lsr-outer-loops).
 
 ; The result of each inner reduction is stored to d[r] after the inner loop.
 ; With outer-loop LSR the store gets its own pointer IV and becomes a
@@ -17,25 +21,22 @@ define void @row_sums(ptr %a, ptr %d, i32 %rows, i32 %n) {
 ; XCV:       # %bb.0: # %entry
 ; XCV-NEXT:    li a4, 0
 ; XCV-NEXT:    slli a3, a3, 2
-; XCV-NEXT:    add a5, a0, a3
 ; XCV-NEXT:  .LBB0_1: # %outer
 ; XCV-NEXT:    # =>This Loop Header: Depth=1
 ; XCV-NEXT:    # Child Loop BB0_2 Depth 2
-; XCV-NEXT:    li a6, 0
-; XCV-NEXT:    mul a7, a3, a4
-; XCV-NEXT:    add a7, a5, a7
-; XCV-NEXT:    mv t0, a0
+; XCV-NEXT:    li a5, 0
+; XCV-NEXT:    mv a6, a0
+; XCV-NEXT:    add a0, a0, a3
 ; XCV-NEXT:  .LBB0_2: # %inner
 ; XCV-NEXT:    # Parent Loop BB0_1 Depth=1
 ; XCV-NEXT:    # => This Inner Loop Header: Depth=2
-; XCV-NEXT:    cv.lw t1, (t0), 4
-; XCV-NEXT:    fadd.s a6, a6, t1
-; XCV-NEXT:    bne t0, a7, .LBB0_2
+; XCV-NEXT:    cv.lw a7, (a6), 4
+; XCV-NEXT:    fadd.s a5, a5, a7
+; XCV-NEXT:    bne a6, a0, .LBB0_2
 ; XCV-NEXT:  # %bb.3: # %outer.latch
 ; XCV-NEXT:    # in Loop: Header=BB0_1 Depth=1
 ; XCV-NEXT:    addi a4, a4, 1
-; XCV-NEXT:    cv.sw a6, (a1), 4
-; XCV-NEXT:    add a0, a0, a3
+; XCV-NEXT:    cv.sw a5, (a1), 4
 ; XCV-NEXT:    bne a4, a2, .LBB0_1
 ; XCV-NEXT:  # %bb.4: # %exit
 ; XCV-NEXT:    ret
@@ -44,31 +45,54 @@ define void @row_sums(ptr %a, ptr %d, i32 %rows, i32 %n) {
 ; NOXCV:       # %bb.0: # %entry
 ; NOXCV-NEXT:    li a4, 0
 ; NOXCV-NEXT:    slli a3, a3, 2
-; NOXCV-NEXT:    add a5, a0, a3
 ; NOXCV-NEXT:  .LBB0_1: # %outer
 ; NOXCV-NEXT:    # =>This Loop Header: Depth=1
 ; NOXCV-NEXT:    # Child Loop BB0_2 Depth 2
-; NOXCV-NEXT:    li a6, 0
-; NOXCV-NEXT:    mul a7, a3, a4
-; NOXCV-NEXT:    add a7, a5, a7
-; NOXCV-NEXT:    mv t0, a0
+; NOXCV-NEXT:    li a5, 0
+; NOXCV-NEXT:    mv a6, a0
+; NOXCV-NEXT:    add a0, a0, a3
 ; NOXCV-NEXT:  .LBB0_2: # %inner
 ; NOXCV-NEXT:    # Parent Loop BB0_1 Depth=1
 ; NOXCV-NEXT:    # => This Inner Loop Header: Depth=2
-; NOXCV-NEXT:    lw t1, 0(t0)
-; NOXCV-NEXT:    fadd.s a6, a6, t1
-; NOXCV-NEXT:    addi t0, t0, 4
-; NOXCV-NEXT:    bne t0, a7, .LBB0_2
+; NOXCV-NEXT:    lw a7, 0(a6)
+; NOXCV-NEXT:    fadd.s a5, a5, a7
+; NOXCV-NEXT:    addi a6, a6, 4
+; NOXCV-NEXT:    bne a6, a0, .LBB0_2
 ; NOXCV-NEXT:  # %bb.3: # %outer.latch
 ; NOXCV-NEXT:    # in Loop: Header=BB0_1 Depth=1
-; NOXCV-NEXT:    slli a7, a4, 2
+; NOXCV-NEXT:    slli a6, a4, 2
 ; NOXCV-NEXT:    addi a4, a4, 1
-; NOXCV-NEXT:    add a7, a1, a7
-; NOXCV-NEXT:    sw a6, 0(a7)
-; NOXCV-NEXT:    add a0, a0, a3
+; NOXCV-NEXT:    add a6, a1, a6
+; NOXCV-NEXT:    sw a5, 0(a6)
 ; NOXCV-NEXT:    bne a4, a2, .LBB0_1
 ; NOXCV-NEXT:  # %bb.4: # %exit
 ; NOXCV-NEXT:    ret
+;
+; TUNE-LABEL: row_sums:
+; TUNE:       # %bb.0: # %entry
+; TUNE-NEXT:    li a4, 0
+; TUNE-NEXT:    slli a3, a3, 2
+; TUNE-NEXT:  .LBB0_1: # %outer
+; TUNE-NEXT:    # =>This Loop Header: Depth=1
+; TUNE-NEXT:    # Child Loop BB0_2 Depth 2
+; TUNE-NEXT:    li a5, 0
+; TUNE-NEXT:    mv a6, a0
+; TUNE-NEXT:    add a0, a0, a3
+; TUNE-NEXT:  .LBB0_2: # %inner
+; TUNE-NEXT:    # Parent Loop BB0_1 Depth=1
+; TUNE-NEXT:    # => This Inner Loop Header: Depth=2
+; TUNE-NEXT:    lw a7, 0(a6)
+; TUNE-NEXT:    addi a6, a6, 4
+; TUNE-NEXT:    fadd.s a5, a5, a7
+; TUNE-NEXT:    bne a6, a0, .LBB0_2
+; TUNE-NEXT:  # %bb.3: # %outer.latch
+; TUNE-NEXT:    # in Loop: Header=BB0_1 Depth=1
+; TUNE-NEXT:    sw a5, 0(a1)
+; TUNE-NEXT:    addi a4, a4, 1
+; TUNE-NEXT:    addi a1, a1, 4
+; TUNE-NEXT:    bne a4, a2, .LBB0_1
+; TUNE-NEXT:  # %bb.4: # %exit
+; TUNE-NEXT:    ret
 entry:
   %stride = shl i32 %n, 2
   br label %outer
@@ -110,28 +134,25 @@ define void @row_scale_acc(ptr %a, ptr %b, ptr %d, i32 %rows, i32 %cols) {
 ; XCV:       # %bb.0: # %entry
 ; XCV-NEXT:    li a5, 0
 ; XCV-NEXT:    slli a4, a4, 2
-; XCV-NEXT:    add a6, a2, a4
 ; XCV-NEXT:  .LBB1_1: # %outer
 ; XCV-NEXT:    # =>This Loop Header: Depth=1
 ; XCV-NEXT:    # Child Loop BB1_2 Depth 2
-; XCV-NEXT:    mul t0, a4, a5
+; XCV-NEXT:    mv a6, a2
+; XCV-NEXT:    add a2, a2, a4
 ; XCV-NEXT:    slli a7, a5, 2
-; XCV-NEXT:    add t0, a6, t0
-; XCV-NEXT:    mv t1, a1
-; XCV-NEXT:    mv t2, a2
+; XCV-NEXT:    mv t0, a1
 ; XCV-NEXT:  .LBB1_2: # %inner
 ; XCV-NEXT:    # Parent Loop BB1_1 Depth=1
 ; XCV-NEXT:    # => This Inner Loop Header: Depth=2
-; XCV-NEXT:    cv.lw t3, a7(a0)
-; XCV-NEXT:    cv.lw t4, (t1), 4
-; XCV-NEXT:    lw t5, 0(t2)
-; XCV-NEXT:    fmadd.s t3, t3, t4, t5
-; XCV-NEXT:    cv.sw t3, (t2), 4
-; XCV-NEXT:    bne t2, t0, .LBB1_2
+; XCV-NEXT:    cv.lw t1, a7(a0)
+; XCV-NEXT:    cv.lw t2, (t0), 4
+; XCV-NEXT:    lw t3, 0(a6)
+; XCV-NEXT:    fmadd.s t1, t1, t2, t3
+; XCV-NEXT:    cv.sw t1, (a6), 4
+; XCV-NEXT:    bne a6, a2, .LBB1_2
 ; XCV-NEXT:  # %bb.3: # %outer.latch
 ; XCV-NEXT:    # in Loop: Header=BB1_1 Depth=1
 ; XCV-NEXT:    addi a5, a5, 1
-; XCV-NEXT:    add a2, a2, a4
 ; XCV-NEXT:    bne a5, a3, .LBB1_1
 ; XCV-NEXT:  # %bb.4: # %exit
 ; XCV-NEXT:    ret
@@ -140,34 +161,61 @@ define void @row_scale_acc(ptr %a, ptr %b, ptr %d, i32 %rows, i32 %cols) {
 ; NOXCV:       # %bb.0: # %entry
 ; NOXCV-NEXT:    li a5, 0
 ; NOXCV-NEXT:    slli a4, a4, 2
-; NOXCV-NEXT:    add a6, a2, a4
 ; NOXCV-NEXT:  .LBB1_1: # %outer
 ; NOXCV-NEXT:    # =>This Loop Header: Depth=1
 ; NOXCV-NEXT:    # Child Loop BB1_2 Depth 2
-; NOXCV-NEXT:    mul t0, a4, a5
+; NOXCV-NEXT:    mv a6, a2
 ; NOXCV-NEXT:    slli a7, a5, 2
+; NOXCV-NEXT:    add a2, a2, a4
 ; NOXCV-NEXT:    add a7, a0, a7
-; NOXCV-NEXT:    add t0, a6, t0
-; NOXCV-NEXT:    mv t1, a1
-; NOXCV-NEXT:    mv t2, a2
+; NOXCV-NEXT:    mv t0, a1
 ; NOXCV-NEXT:  .LBB1_2: # %inner
 ; NOXCV-NEXT:    # Parent Loop BB1_1 Depth=1
 ; NOXCV-NEXT:    # => This Inner Loop Header: Depth=2
-; NOXCV-NEXT:    lw t3, 0(a7)
-; NOXCV-NEXT:    lw t4, 0(t1)
-; NOXCV-NEXT:    lw t5, 0(t2)
-; NOXCV-NEXT:    fmadd.s t3, t3, t4, t5
-; NOXCV-NEXT:    sw t3, 0(t2)
-; NOXCV-NEXT:    addi t2, t2, 4
-; NOXCV-NEXT:    addi t1, t1, 4
-; NOXCV-NEXT:    bne t2, t0, .LBB1_2
+; NOXCV-NEXT:    lw t1, 0(a7)
+; NOXCV-NEXT:    lw t2, 0(t0)
+; NOXCV-NEXT:    lw t3, 0(a6)
+; NOXCV-NEXT:    fmadd.s t1, t1, t2, t3
+; NOXCV-NEXT:    sw t1, 0(a6)
+; NOXCV-NEXT:    addi a6, a6, 4
+; NOXCV-NEXT:    addi t0, t0, 4
+; NOXCV-NEXT:    bne a6, a2, .LBB1_2
 ; NOXCV-NEXT:  # %bb.3: # %outer.latch
 ; NOXCV-NEXT:    # in Loop: Header=BB1_1 Depth=1
 ; NOXCV-NEXT:    addi a5, a5, 1
-; NOXCV-NEXT:    add a2, a2, a4
 ; NOXCV-NEXT:    bne a5, a3, .LBB1_1
 ; NOXCV-NEXT:  # %bb.4: # %exit
 ; NOXCV-NEXT:    ret
+;
+; TUNE-LABEL: row_scale_acc:
+; TUNE:       # %bb.0: # %entry
+; TUNE-NEXT:    li a5, 0
+; TUNE-NEXT:    slli a4, a4, 2
+; TUNE-NEXT:  .LBB1_1: # %outer
+; TUNE-NEXT:    # =>This Loop Header: Depth=1
+; TUNE-NEXT:    # Child Loop BB1_2 Depth 2
+; TUNE-NEXT:    slli a7, a5, 2
+; TUNE-NEXT:    mv a6, a2
+; TUNE-NEXT:    add a2, a2, a4
+; TUNE-NEXT:    add a7, a0, a7
+; TUNE-NEXT:    mv t0, a1
+; TUNE-NEXT:  .LBB1_2: # %inner
+; TUNE-NEXT:    # Parent Loop BB1_1 Depth=1
+; TUNE-NEXT:    # => This Inner Loop Header: Depth=2
+; TUNE-NEXT:    lw t1, 0(a7)
+; TUNE-NEXT:    lw t2, 0(t0)
+; TUNE-NEXT:    lw t3, 0(a6)
+; TUNE-NEXT:    addi t0, t0, 4
+; TUNE-NEXT:    fmadd.s t1, t1, t2, t3
+; TUNE-NEXT:    sw t1, 0(a6)
+; TUNE-NEXT:    addi a6, a6, 4
+; TUNE-NEXT:    bne a6, a2, .LBB1_2
+; TUNE-NEXT:  # %bb.3: # %outer.latch
+; TUNE-NEXT:    # in Loop: Header=BB1_1 Depth=1
+; TUNE-NEXT:    addi a5, a5, 1
+; TUNE-NEXT:    bne a5, a3, .LBB1_1
+; TUNE-NEXT:  # %bb.4: # %exit
+; TUNE-NEXT:    ret
 entry:
   br label %outer
 

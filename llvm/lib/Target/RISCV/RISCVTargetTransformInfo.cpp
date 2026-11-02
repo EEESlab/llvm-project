@@ -3416,7 +3416,11 @@ bool RISCVTTIImpl::shouldLSROptimizeOuterLoop(const Loop *L) const {
   // CORE-V XCVmem: an outer loop often accesses an array once per iteration.
   // Without LSR, the original integer index is preserved, requiring dedicated
   // operations to generate the address (shift + add).
-  return ST->hasVendorXCVmem() && !ST->is64Bit();
+  // A tuning can also ask for it: it removes the per-iteration index
+  // arithmetic (multiply, shift, add) of such an access even without
+  // post-increment.
+  return (ST->hasVendorXCVmem() && !ST->is64Bit()) ||
+         ST->enableLSROuterLoops();
 }
 
 bool RISCVTTIImpl::isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
