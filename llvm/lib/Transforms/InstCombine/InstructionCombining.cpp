@@ -374,15 +374,25 @@ bool InstCombinerImpl::shouldChangeType(Type *From, Type *To) const {
   return shouldChangeType(FromWidth, ToWidth);
 }
 
-// Return true, if No Signed Wrap should be maintained for I.
-// The No Signed Wrap flag can be kept if the operation "B (I.getOpcode) C",
-// where both B and C should be ConstantInts, results in a constant that does
-// not overflow. This function only handles the Add/Sub/Mul opcodes. For
-// all other opcodes, the function conservatively returns false.
-static bool maintainNoSignedWrap(BinaryOperator &I, Value *B, Value *C) {
+// Return true, if No Signed Wrap should be maintained for I after
+// "(A op B) op C" is reassociated to "A op V", where V is what "B op C"
+// simplified to. The No Signed Wrap flag can be kept if "B op C" is known to
+// be computed exactly: either B and C are ConstantInts and the operation does
+// not overflow (Add/Sub/Mul only), or, for Add, one of B and C is "V -nsw" the
+// other. For all other cases, the function conservatively returns false.
+static bool maintainNoSignedWrap(BinaryOperator &I, Value *B, Value *C,
+                                 Value *V) {
   auto *OBO = dyn_cast<OverflowingBinaryOperator>(&I);
   if (!OBO || !OBO->hasNoSignedWrap())
     return false;
+
+  // "B + C" is exactly V when one addend is "V -nsw" the other, e.g.
+  // (X +nsw A) +nsw (V -nsw A) --> X +nsw V: the original sum is X + V
+  // without overflow.
+  if (I.getOpcode() == Instruction::Add &&
+      (match(C, m_NSWSub(m_Specific(V), m_Specific(B))) ||
+       match(B, m_NSWSub(m_Specific(V), m_Specific(C)))))
+    return true;
 
   const APInt *BVal, *CVal;
   if (!match(B, m_APInt(BVal)) || !match(C, m_APInt(CVal)))
@@ -542,7 +552,8 @@ bool InstCombinerImpl::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
           replaceOperand(I, 0, A);
           replaceOperand(I, 1, V);
           bool IsNUW = hasNoUnsignedWrap(I) && hasNoUnsignedWrap(*Op0);
-          bool IsNSW = maintainNoSignedWrap(I, B, C) && hasNoSignedWrap(*Op0);
+          bool IsNSW =
+              maintainNoSignedWrap(I, B, C, V) && hasNoSignedWrap(*Op0);
 
           // Conservatively clear all optional flags since they may not be
           // preserved by the reassociation. Reset nsw/nuw based on the above
@@ -600,6 +611,9 @@ bool InstCombinerImpl::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
 
         // Does "C op A" simplify?
         if (Value *V = simplifyBinOp(Opcode, C, A, SQ.getWithInstruction(&I))) {
+          bool IsNSW = Opcode == Instruction::Add &&
+                       maintainNoSignedWrap(I, C, A, V) &&
+                       hasNoSignedWrap(*Op0);
           // It simplifies to V.  Form "V op B".
           replaceOperand(I, 0, V);
           replaceOperand(I, 1, B);
@@ -607,6 +621,8 @@ bool InstCombinerImpl::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
           // preserved by the reassociation.
           if (!isa<FPMathOperator>(I))
             I.dropPoisonGeneratingFlags();
+          if (IsNSW)
+            I.setHasNoSignedWrap(true);
           Changed = true;
           ++NumReassoc;
           continue;
@@ -621,6 +637,9 @@ bool InstCombinerImpl::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
 
         // Does "C op A" simplify?
         if (Value *V = simplifyBinOp(Opcode, C, A, SQ.getWithInstruction(&I))) {
+          bool IsNSW = Opcode == Instruction::Add &&
+                       maintainNoSignedWrap(I, C, A, V) &&
+                       hasNoSignedWrap(*Op1);
           // It simplifies to V.  Form "B op V".
           replaceOperand(I, 0, B);
           replaceOperand(I, 1, V);
@@ -628,6 +647,8 @@ bool InstCombinerImpl::SimplifyAssociativeOrCommutative(BinaryOperator &I) {
           // preserved by the reassociation.
           if (!isa<FPMathOperator>(I))
             I.dropPoisonGeneratingFlags();
+          if (IsNSW)
+            I.setHasNoSignedWrap(true);
           Changed = true;
           ++NumReassoc;
           continue;
