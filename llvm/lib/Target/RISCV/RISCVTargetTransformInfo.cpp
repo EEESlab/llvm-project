@@ -3658,6 +3658,37 @@ bool RISCVTTIImpl::isProfitableToSinkOperands(
     }
   }
 
+  // A scalar fneg folds into the instruction that uses it: fma/fmuladd become
+  // fmsub/fnmsub/fnmadd and fadd/fsub swap into each other. This only happens
+  // when both are in the same block, but LICM hoists an fneg of a value that
+  // is invariant in the loop, e.g. the factor in "y[i] -= f * x[i]", which
+  // then costs an extra instruction outside the loop. Sink it next to the use.
+  if (I->getType()->isFloatingPointTy() && isTypeLegal(I->getType())) {
+    // Operands whose fneg folds: both for fadd, the subtrahend for fsub
+    // (x - -y = x + y), any of the three for fma (fmsub/fnmsub/fnmadd).
+    unsigned FirstFoldable = 0, NumFoldable = 0;
+    if (I->getOpcode() == Instruction::FAdd)
+      NumFoldable = 2;
+    else if (I->getOpcode() == Instruction::FSub)
+      FirstFoldable = 1, NumFoldable = 2;
+    else if (auto *II = dyn_cast<IntrinsicInst>(I))
+      if (II->getIntrinsicID() == Intrinsic::fma ||
+          II->getIntrinsicID() == Intrinsic::fmuladd)
+        NumFoldable = 3;
+    if (NumFoldable) {
+      bool Found = false;
+      for (unsigned OpI = FirstFoldable; OpI < NumFoldable; ++OpI) {
+        Use &Op = I->getOperandUse(OpI);
+        if (match(Op.get(), m_FNeg(m_Value()))) {
+          Ops.push_back(&Op);
+          Found = true;
+        }
+      }
+      if (Found)
+        return true;
+    }
+  }
+
   if (!I->getType()->isVectorTy() || !ST->hasVInstructions())
     return false;
 
