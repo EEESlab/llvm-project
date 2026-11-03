@@ -547,6 +547,10 @@ public:
   unsigned getLoopTermFoldExpansionBudget() const override { return 16; }
   bool shouldLoopTermFoldRewriteExitUses() const override { return true; }
 
+  /// Return why the body of \p L cannot become a CORE-V hardware loop body,
+  /// or null.
+  const char *getHardwareLoopBlocker(const Loop *L) const;
+
   bool shouldConsiderAddressTypePromotion(
       const Instruction &I,
       bool &AllowPromotionWithoutCommonHeader) const override;

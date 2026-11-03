@@ -53,6 +53,61 @@ static cl::opt<unsigned>
 static cl::opt<bool> EnableOrLikeSelectOpt("enable-riscv-or-like-select",
                                            cl::init(true), cl::Hidden);
 
+/// Return why the body of \p L cannot become a CORE-V hardware loop body, or
+/// null if nothing in it prevents that.
+const char *RISCVTTIImpl::getHardwareLoopBlocker(const Loop *L) const {
+  // A call cannot be part of a hardware loop body: the callee may use the
+  // hardware loop registers itself. Such a loop is rejected when the machine
+  // code is converted, but by then LSR has already built a second, software
+  // countdown next to the hardware-loop intrinsics, which costs an extra
+  // register and induction variable for the whole loop.
+  for (BasicBlock *BB : L->blocks())
+    for (Instruction &I : *BB)
+      if (auto *Call = dyn_cast<CallBase>(&I)) {
+        // A library function still called at this point is a real call:
+        // the ones that lower to an instruction have become intrinsics.
+        // isLoweredToCall() does not tell, it treats e.g. fabs and sin as
+        // cheap by name. Intrinsics are kept, except memory intrinsics.
+        if (isa<InlineAsm>(Call->getCalledOperand()))
+          continue;
+        const Function *F = Call->getCalledFunction();
+        if (!F || !F->isIntrinsic() || isa<MemIntrinsic>(Call))
+          return "contains a call";
+      }
+
+  // The body of a hardware loop cannot contain a branch. The machine pass
+  // rejects such a loop, again after LSR has built the countdown for it. In an
+  // innermost loop, a branch comes from a conditional branch other than the
+  // one leaving the loop, or from a select when the core has no conditional
+  // move: it is expanded into a branch diamond.
+  if (L->isInnermost()) {
+    const bool HasCondMove = ST->hasCZEROLike() ||
+                             ST->hasVendorXTHeadCondMov() ||
+                             ST->hasConditionalMoveFusion();
+    for (BasicBlock *BB : L->blocks()) {
+      auto *BI = dyn_cast<BranchInst>(BB->getTerminator());
+      if (BI && BI->isConditional() && !L->isLoopExiting(BB))
+        return "conditional branch in the body";
+      if (HasCondMove)
+        continue;
+      for (Instruction &I : *BB) {
+        auto *Sel = dyn_cast<SelectInst>(&I);
+        if (!Sel || Sel->getType()->isIntOrIntVectorTy(1) ||
+            Sel->getType()->isVectorTy())
+          continue;
+        // Selects of 0 or -1 lower to logic operations.
+        auto IsMask = [](Value *V) {
+          return match(V, m_Zero()) || match(V, m_AllOnes());
+        };
+        if (IsMask(Sel->getTrueValue()) || IsMask(Sel->getFalseValue()))
+          continue;
+        return "select that becomes a branch";
+      }
+    }
+  }
+  return nullptr;
+}
+
 bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
                                             AssumptionCache &AC,
                                             TargetLibraryInfo *LibInfo,
@@ -75,26 +130,10 @@ bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
   HWLoopInfo.PerformEntryTest = false;
   HWLoopInfo.IsNestingLegal = true;
 
-  // A call cannot be part of a hardware loop body: the callee may use the
-  // hardware loop registers itself. Such a loop is rejected when the machine
-  // code is converted, but by then LSR has already built a second, software
-  // countdown next to the hardware-loop intrinsics, which costs an extra
-  // register and induction variable for the whole loop.
-  for (BasicBlock *BB : L->blocks())
-    for (Instruction &I : *BB)
-      if (auto *Call = dyn_cast<CallBase>(&I)) {
-        // A library function still called at this point is a real call:
-        // the ones that lower to an instruction have become intrinsics.
-        // isLoweredToCall() does not tell, it treats e.g. fabs and sin as
-        // cheap by name. Intrinsics are kept, except memory intrinsics.
-        if (isa<InlineAsm>(Call->getCalledOperand()))
-          continue;
-        const Function *F = Call->getCalledFunction();
-        if (!F || !F->isIntrinsic() || isa<MemIntrinsic>(Call))
-          return Report(false, "contains a call");
-      }
-
   ArrayRef<Loop *> SubLoops = L->getSubLoops();
+
+  if (const char *Reason = getHardwareLoopBlocker(L))
+    return Report(false, Reason);
 
   if (SubLoops.empty())
     return Report(true, "innermost loop");
