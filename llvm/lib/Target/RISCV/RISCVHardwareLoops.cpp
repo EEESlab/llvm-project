@@ -58,6 +58,7 @@
 #include "llvm/ADT/Statistic.h"
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
+#include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -195,6 +196,7 @@ public:
 
   void getAnalysisUsage(AnalysisUsage &AU) const override {
     AU.addRequired<MachineLoopInfoWrapperPass>();
+    AU.addRequired<MachineBlockFrequencyInfoWrapperPass>();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
 
@@ -203,6 +205,12 @@ public:
 private:
   const RISCVInstrInfo *TII = nullptr;
   const TargetRegisterInfo *TRI = nullptr;
+  const MachineBlockFrequencyInfo *MBFI = nullptr;
+
+  /// Order sibling loops so that the most frequently entered one is converted
+  /// first.
+  SmallVector<MachineLoop *, 4> sortByEntryFrequency(
+      ArrayRef<MachineLoop *> Loops) const;
 
   /// Blocks whose position is fixed by a hardware loop converted earlier in
   /// this function: each loop's preheader (its setup must stay directly before
@@ -230,6 +238,7 @@ char RISCVHardwareLoops::ID = 0;
 INITIALIZE_PASS_BEGIN(RISCVHardwareLoops, DEBUG_TYPE,
                       "RISC-V CORE-V hardware loops", false, false)
 INITIALIZE_PASS_DEPENDENCY(MachineLoopInfoWrapperPass)
+INITIALIZE_PASS_DEPENDENCY(MachineBlockFrequencyInfoWrapperPass)
 INITIALIZE_PASS_END(RISCVHardwareLoops, DEBUG_TYPE,
                     "RISC-V CORE-V hardware loops", false, false)
 
@@ -1455,11 +1464,40 @@ bool RISCVHardwareLoops::processLoopTree(MachineLoop &ML) {
     return true;
   }
 
+  // Sibling loops can share their exit block, which can directly follow only
+  // one of their latches; the others reach it through a jump on every exit.
+  // The first loop converted keeps the fall-through, so convert the most
+  // frequently entered loop first.
   bool Changed = false;
-  for (MachineLoop *SubLoop : SubLoops)
+  for (MachineLoop *SubLoop : sortByEntryFrequency(SubLoops))
     Changed |= processLoopTree(*SubLoop);
 
   return Changed;
+}
+
+SmallVector<MachineLoop *, 4> RISCVHardwareLoops::sortByEntryFrequency(
+    ArrayRef<MachineLoop *> Loops) const {
+  SmallVector<MachineLoop *, 4> Sorted(Loops.begin(), Loops.end());
+  auto EntryFreq = [&](const MachineLoop *ML) {
+    const MachineBasicBlock *Preheader = ML->getLoopPreheader();
+    return Preheader ? MBFI->getBlockFreq(Preheader) : BlockFrequency(0);
+  };
+  // Without a profile, the guards that choose between sibling loops are often
+  // even. Then prefer the larger loop (more blocks, so usually a nest): the
+  // other one is typically the special case, e.g. the version of a loop that
+  // LoopUnswitch created for an empty inner loop. Otherwise keep the order.
+  llvm::stable_sort(Sorted, [&](const MachineLoop *A, const MachineLoop *B) {
+    BlockFrequency FA = EntryFreq(A), FB = EntryFreq(B);
+    if (FA != FB)
+      return FA > FB;
+    return A->getNumBlocks() > B->getNumBlocks();
+  });
+  LLVM_DEBUG({
+    for (const MachineLoop *ML : Sorted)
+      dbgs() << "  sibling " << printMBBReference(*ML->getHeader())
+             << " entry frequency " << EntryFreq(ML).getFrequency() << "\n";
+  });
+  return Sorted;
 }
 
 bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
@@ -1474,6 +1512,7 @@ bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
 
   TII = ST.getInstrInfo();
   TRI = ST.getRegisterInfo();
+  MBFI = &getAnalysis<MachineBlockFrequencyInfoWrapperPass>().getMBFI();
   PinnedBlocks.clear();
 
   MachineLoopInfo &MLI = getAnalysis<MachineLoopInfoWrapperPass>().getLI();
