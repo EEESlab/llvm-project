@@ -531,6 +531,16 @@ public:
   bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
                      const TargetTransformInfo::LSRCost &C2) const override;
 
+  // RISC-V branches compare two registers (beq/bne/blt/bge rs1, rs2), so a
+  // loop exit test against a value other than zero needs no separate compare.
+  // Telling LSR so makes it prefer a single index register shared by several
+  // accesses over one pointer per access; that is only cheaper when the
+  // index can be folded into the access, as with the XCVmem register-register
+  // and post-increment forms.
+  bool canMacroFuseCmp() const override {
+    return ST->hasVendorXCVmem() && !ST->is64Bit();
+  }
+
   // Removing the counter of a loop saves an instruction per iteration (and a
   // register); depending on the architecture, spending a few more instructions
   // once in the preheader can be profitable.
