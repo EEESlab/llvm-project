@@ -18,7 +18,7 @@ define void @fill(ptr %d, i32 %v, i32 %n) {
 ; CHECK-NEXT:    # =>This Inner Loop Header: Depth=1
 ; CHECK-NEXT:    cv.sw a1, (a0), 4
 ; CHECK-NEXT:    addi a2, a2, -1
-; CHECK-NEXT:    cv.bneimm a2, 0, .LBB0_3
+; CHECK-NEXT:    bnez a2, .LBB0_3
 ; CHECK-NEXT:  # %bb.4: # %exit
 ; CHECK-NEXT:    ret
 entry:
@@ -50,7 +50,7 @@ define i32 @sum(ptr %s, i32 %n) {
 ; CHECK-NEXT:    cv.lw a3, (a0), 4
 ; CHECK-NEXT:    addi a1, a1, -1
 ; CHECK-NEXT:    add a2, a2, a3
-; CHECK-NEXT:    cv.bneimm a1, 0, .LBB1_3
+; CHECK-NEXT:    bnez a1, .LBB1_3
 ; CHECK-NEXT:  # %bb.4: # %exit
 ; CHECK-NEXT:    mv a0, a2
 ; CHECK-NEXT:    ret

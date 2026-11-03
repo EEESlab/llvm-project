@@ -3,6 +3,8 @@
 ; RUN:   | FileCheck %s --check-prefix=RV32
 ; RUN: llc -mtriple=riscv64 -mattr=+m,+f -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s --check-prefix=RV64
+; RUN: llc -mtriple=riscv32 -mattr=+m,+zfinx,+xcvbi -verify-machineinstrs < %s \
+; RUN:   | FileCheck %s --check-prefix=XCV
 
 ; A select whose false value is the loop-carried value it replaces:
 ;   %old = phi [ init, preheader ], [ %r, latch ]
@@ -67,6 +69,32 @@ define i32 @last_neg(ptr %v, i32 %n) {
 ; RV64-NEXT:  .LBB0_6: # %exit
 ; RV64-NEXT:    mv a0, a1
 ; RV64-NEXT:    ret
+;
+; XCV-LABEL: last_neg:
+; XCV:       # %bb.0: # %entry
+; XCV-NEXT:    blez a1, .LBB0_5
+; XCV-NEXT:  # %bb.1: # %loop.preheader
+; XCV-NEXT:    li a3, 0
+; XCV-NEXT:    li a2, -1
+; XCV-NEXT:    j .LBB0_3
+; XCV-NEXT:  .LBB0_2: # %loop
+; XCV-NEXT:    # in Loop: Header=BB0_3 Depth=1
+; XCV-NEXT:    addi a3, a3, 1
+; XCV-NEXT:    addi a0, a0, 4
+; XCV-NEXT:    beq a1, a3, .LBB0_6
+; XCV-NEXT:  .LBB0_3: # %loop
+; XCV-NEXT:    # =>This Inner Loop Header: Depth=1
+; XCV-NEXT:    lw a4, 0(a0)
+; XCV-NEXT:    bgez a4, .LBB0_2
+; XCV-NEXT:  # %bb.4: # %loop
+; XCV-NEXT:    # in Loop: Header=BB0_3 Depth=1
+; XCV-NEXT:    mv a2, a3
+; XCV-NEXT:    j .LBB0_2
+; XCV-NEXT:  .LBB0_5:
+; XCV-NEXT:    li a2, -1
+; XCV-NEXT:  .LBB0_6: # %exit
+; XCV-NEXT:    mv a0, a2
+; XCV-NEXT:    ret
 entry:
   %cmp0 = icmp sgt i32 %n, 0
   br i1 %cmp0, label %loop, label %exit
@@ -217,6 +245,70 @@ define i32 @argmax_call(ptr %v, i32 %n) {
 ; RV64-NEXT:    addi sp, sp, 48
 ; RV64-NEXT:    .cfi_def_cfa_offset 0
 ; RV64-NEXT:    ret
+;
+; XCV-LABEL: argmax_call:
+; XCV:       # %bb.0: # %entry
+; XCV-NEXT:    addi sp, sp, -32
+; XCV-NEXT:    .cfi_def_cfa_offset 32
+; XCV-NEXT:    sw ra, 28(sp) # 4-byte Folded Spill
+; XCV-NEXT:    sw s0, 24(sp) # 4-byte Folded Spill
+; XCV-NEXT:    sw s1, 20(sp) # 4-byte Folded Spill
+; XCV-NEXT:    sw s2, 16(sp) # 4-byte Folded Spill
+; XCV-NEXT:    sw s3, 12(sp) # 4-byte Folded Spill
+; XCV-NEXT:    sw s4, 8(sp) # 4-byte Folded Spill
+; XCV-NEXT:    .cfi_offset ra, -4
+; XCV-NEXT:    .cfi_offset s0, -8
+; XCV-NEXT:    .cfi_offset s1, -12
+; XCV-NEXT:    .cfi_offset s2, -16
+; XCV-NEXT:    .cfi_offset s3, -20
+; XCV-NEXT:    .cfi_offset s4, -24
+; XCV-NEXT:    mv s3, a0
+; XCV-NEXT:    lw a0, 0(a0)
+; XCV-NEXT:    mv s0, a1
+; XCV-NEXT:    call fabsf_ext
+; XCV-NEXT:    li a1, 2
+; XCV-NEXT:    blt s0, a1, .LBB1_5
+; XCV-NEXT:  # %bb.1: # %loop.preheader
+; XCV-NEXT:    mv s1, a0
+; XCV-NEXT:    li s2, 0
+; XCV-NEXT:    addi s3, s3, 4
+; XCV-NEXT:    li s4, 1
+; XCV-NEXT:    j .LBB1_3
+; XCV-NEXT:  .LBB1_2: # %loop
+; XCV-NEXT:    # in Loop: Header=BB1_3 Depth=1
+; XCV-NEXT:    fmax.s s1, a0, s1
+; XCV-NEXT:    addi s4, s4, 1
+; XCV-NEXT:    addi s3, s3, 4
+; XCV-NEXT:    beq s0, s4, .LBB1_6
+; XCV-NEXT:  .LBB1_3: # %loop
+; XCV-NEXT:    # =>This Inner Loop Header: Depth=1
+; XCV-NEXT:    lw a0, 0(s3)
+; XCV-NEXT:    call fabsf_ext
+; XCV-NEXT:    flt.s a1, s1, a0
+; XCV-NEXT:    beqz a1, .LBB1_2
+; XCV-NEXT:  # %bb.4: # %loop
+; XCV-NEXT:    # in Loop: Header=BB1_3 Depth=1
+; XCV-NEXT:    mv s2, s4
+; XCV-NEXT:    j .LBB1_2
+; XCV-NEXT:  .LBB1_5:
+; XCV-NEXT:    li s2, 0
+; XCV-NEXT:  .LBB1_6: # %exit
+; XCV-NEXT:    mv a0, s2
+; XCV-NEXT:    lw ra, 28(sp) # 4-byte Folded Reload
+; XCV-NEXT:    lw s0, 24(sp) # 4-byte Folded Reload
+; XCV-NEXT:    lw s1, 20(sp) # 4-byte Folded Reload
+; XCV-NEXT:    lw s2, 16(sp) # 4-byte Folded Reload
+; XCV-NEXT:    lw s3, 12(sp) # 4-byte Folded Reload
+; XCV-NEXT:    lw s4, 8(sp) # 4-byte Folded Reload
+; XCV-NEXT:    .cfi_restore ra
+; XCV-NEXT:    .cfi_restore s0
+; XCV-NEXT:    .cfi_restore s1
+; XCV-NEXT:    .cfi_restore s2
+; XCV-NEXT:    .cfi_restore s3
+; XCV-NEXT:    .cfi_restore s4
+; XCV-NEXT:    addi sp, sp, 32
+; XCV-NEXT:    .cfi_def_cfa_offset 0
+; XCV-NEXT:    ret
 entry:
   %v0 = load float, ptr %v, align 4
   %a0 = call fast float @fabsf_ext(float %v0)
@@ -297,6 +389,32 @@ define i32 @last_neg_true_carried(ptr %v, i32 %n) {
 ; RV64-NEXT:  .LBB2_6: # %exit
 ; RV64-NEXT:    mv a0, a1
 ; RV64-NEXT:    ret
+;
+; XCV-LABEL: last_neg_true_carried:
+; XCV:       # %bb.0: # %entry
+; XCV-NEXT:    blez a1, .LBB2_5
+; XCV-NEXT:  # %bb.1: # %loop.preheader
+; XCV-NEXT:    li a3, 0
+; XCV-NEXT:    li a2, -1
+; XCV-NEXT:    j .LBB2_3
+; XCV-NEXT:  .LBB2_2: # %loop
+; XCV-NEXT:    # in Loop: Header=BB2_3 Depth=1
+; XCV-NEXT:    addi a3, a3, 1
+; XCV-NEXT:    addi a0, a0, 4
+; XCV-NEXT:    beq a1, a3, .LBB2_6
+; XCV-NEXT:  .LBB2_3: # %loop
+; XCV-NEXT:    # =>This Inner Loop Header: Depth=1
+; XCV-NEXT:    lw a4, 0(a0)
+; XCV-NEXT:    bgez a4, .LBB2_2
+; XCV-NEXT:  # %bb.4: # %loop
+; XCV-NEXT:    # in Loop: Header=BB2_3 Depth=1
+; XCV-NEXT:    mv a2, a3
+; XCV-NEXT:    j .LBB2_2
+; XCV-NEXT:  .LBB2_5:
+; XCV-NEXT:    li a2, -1
+; XCV-NEXT:  .LBB2_6: # %exit
+; XCV-NEXT:    mv a0, a2
+; XCV-NEXT:    ret
 entry:
   %cmp0 = icmp sgt i32 %n, 0
   br i1 %cmp0, label %loop, label %exit
@@ -320,7 +438,8 @@ exit:
 ; Arg-max without fast-math: the maximum is a second select on the same
 ; condition, and its carried value is also read by the comparison. Both
 ; selects share one branch and both are swapped: a single branch skips the two
-; copies.
+; copies. With XCVbi the comparison with zero must not use cv.beqimm, which
+; would give the selects different conditions and two branches.
 define i32 @argmax_two_selects(ptr %v, i32 %n) {
 ; RV32-LABEL: argmax_two_selects:
 ; RV32:       # %bb.0: # %entry
@@ -388,6 +507,39 @@ define i32 @argmax_two_selects(ptr %v, i32 %n) {
 ; RV64-NEXT:    li a0, 0
 ; RV64-NEXT:  .LBB3_6: # %exit
 ; RV64-NEXT:    ret
+;
+; XCV-LABEL: argmax_two_selects:
+; XCV:       # %bb.0: # %entry
+; XCV-NEXT:    li a3, 2
+; XCV-NEXT:    blt a1, a3, .LBB3_5
+; XCV-NEXT:  # %bb.1: # %loop.preheader
+; XCV-NEXT:    mv a2, a0
+; XCV-NEXT:    li a0, 0
+; XCV-NEXT:    lw a3, 0(a2)
+; XCV-NEXT:    fabs.s a3, a3
+; XCV-NEXT:    addi a2, a2, 4
+; XCV-NEXT:    li a4, 1
+; XCV-NEXT:    j .LBB3_3
+; XCV-NEXT:  .LBB3_2: # %loop
+; XCV-NEXT:    # in Loop: Header=BB3_3 Depth=1
+; XCV-NEXT:    addi a4, a4, 1
+; XCV-NEXT:    addi a2, a2, 4
+; XCV-NEXT:    beq a1, a4, .LBB3_6
+; XCV-NEXT:  .LBB3_3: # %loop
+; XCV-NEXT:    # =>This Inner Loop Header: Depth=1
+; XCV-NEXT:    lw a5, 0(a2)
+; XCV-NEXT:    fabs.s a5, a5
+; XCV-NEXT:    flt.s a6, a3, a5
+; XCV-NEXT:    beqz a6, .LBB3_2
+; XCV-NEXT:  # %bb.4: # %loop
+; XCV-NEXT:    # in Loop: Header=BB3_3 Depth=1
+; XCV-NEXT:    mv a3, a5
+; XCV-NEXT:    mv a0, a4
+; XCV-NEXT:    j .LBB3_2
+; XCV-NEXT:  .LBB3_5:
+; XCV-NEXT:    li a0, 0
+; XCV-NEXT:  .LBB3_6: # %exit
+; XCV-NEXT:    ret
 entry:
   %v0 = load float, ptr %v, align 4
   %a0 = call float @llvm.fabs.f32(float %v0)
