@@ -341,6 +341,8 @@ public:
 
   virtual bool shouldLoopTermFoldRewriteExitUses() const { return false; }
 
+  virtual bool shouldLoopTermFold(const Loop *L) const { return true; }
+
   virtual bool isProfitableLSRChainElement(Instruction *I) const {
     return false;
   }

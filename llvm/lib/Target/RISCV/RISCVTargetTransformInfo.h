@@ -546,6 +546,7 @@ public:
   // once in the preheader can be profitable.
   unsigned getLoopTermFoldExpansionBudget() const override { return 16; }
   bool shouldLoopTermFoldRewriteExitUses() const override { return true; }
+  bool shouldLoopTermFold(const Loop *L) const override;
 
   /// Return why the body of \p L cannot become a CORE-V hardware loop body,
   /// or null.

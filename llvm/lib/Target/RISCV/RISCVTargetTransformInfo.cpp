@@ -108,6 +108,13 @@ const char *RISCVTTIImpl::getHardwareLoopBlocker(const Loop *L) const {
   return nullptr;
 }
 
+bool RISCVTTIImpl::shouldLoopTermFold(const Loop *L) const {
+  // A hardware loop replaces the exit condition and takes its count from the
+  // original trip count. Folding the exit condition first would only make the
+  // count harder to compute: from the distance between two pointers.
+  return !ST->hasVendorXCVhwlp() || getHardwareLoopBlocker(L);
+}
+
 bool RISCVTTIImpl::isHardwareLoopProfitable(Loop *L, ScalarEvolution &SE,
                                             AssumptionCache &AC,
                                             TargetLibraryInfo *LibInfo,

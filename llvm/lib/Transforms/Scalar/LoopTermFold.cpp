@@ -324,6 +324,11 @@ canFoldTermCondOfLoop(Loop *L, ScalarEvolution &SE, DominatorTree &DT,
     return std::nullopt;
   }
 
+  if (!TTI.shouldLoopTermFold(L)) {
+    LLVM_DEBUG(dbgs() << "Target keeps the exit condition of the loop\n");
+    return std::nullopt;
+  }
+
   BasicBlock *LoopLatch = L->getLoopLatch();
   CondBrInst *BI = dyn_cast<CondBrInst>(LoopLatch->getTerminator());
   if (!BI)

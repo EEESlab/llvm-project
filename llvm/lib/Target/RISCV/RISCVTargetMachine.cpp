@@ -487,9 +487,6 @@ void RISCVPassConfig::addIRPasses() {
     addPass(createInterleavedAccessPass());
     addPass(createRISCVCodeGenPrepareLegacyPass());
 
-    // Convert eligible loops to llvm.set.loop.iterations and
-    // llvm.loop.decrement before instruction selection.
-    addPass(createHardwareLoopsLegacyPass());
   }
 
   TargetPassConfig::addIRPasses();
@@ -499,6 +496,8 @@ void RISCVPassConfig::addIRPasses() {
 }
 
 bool RISCVPassConfig::addPreISel() {
+  if (TM->getOptLevel() != CodeGenOptLevel::None)
+    addPass(createHardwareLoopsLegacyPass());
   if (TM->getOptLevel() != CodeGenOptLevel::None)
     addPass(createRISCVPromoteConstantPass());
   if (TM->getOptLevel() != CodeGenOptLevel::None) {

@@ -462,6 +462,10 @@ bool TargetTransformInfo::shouldLoopTermFoldRewriteExitUses() const {
   return TTIImpl->shouldLoopTermFoldRewriteExitUses();
 }
 
+bool TargetTransformInfo::shouldLoopTermFold(const Loop *L) const {
+  return TTIImpl->shouldLoopTermFold(L);
+}
+
 bool TargetTransformInfo::shouldDropLSRSolutionIfLessProfitable() const {
   return TTIImpl->shouldDropLSRSolutionIfLessProfitable();
 }

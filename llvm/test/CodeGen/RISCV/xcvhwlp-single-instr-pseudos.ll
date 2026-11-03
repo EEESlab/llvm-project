@@ -21,12 +21,12 @@ define void @row_sums_f32(ptr %a, ptr %d, i32 %rows, i32 %n) {
 ; CHECK-NEXT:    cv.setup 1, a2, .LBB0_4
 ; CHECK-NEXT:  # %bb.1: # %outer
 ; CHECK-NEXT:    li a6, 0
-; CHECK-NEXT:    mv t0, a0
+; CHECK-NEXT:    mv a7, a0
 ; CHECK-NEXT:    cv.setup 0, a3, .LBB0_3
 ; CHECK-NEXT:  # %bb.2: # %inner
-; CHECK-NEXT:    lw t1, 0(t0)
+; CHECK-NEXT:    lw t1, 0(a7)
 ; CHECK-NEXT:    fadd.s a6, a6, t1
-; CHECK-NEXT:    addi t0, t0, 4
+; CHECK-NEXT:    addi a7, a7, 4
 ; CHECK-NEXT:  .LBB0_3: # %outer.latch
 ; CHECK-NEXT:    # Label of block must be emitted
 ; CHECK-NEXT:    slli a7, a4, 2
@@ -80,12 +80,12 @@ define void @row_sums_f16(ptr %a, ptr %d, i32 %rows, i32 %n) {
 ; CHECK-NEXT:    cv.setup 1, a2, .LBB1_4
 ; CHECK-NEXT:  # %bb.1: # %outer
 ; CHECK-NEXT:    li a6, 0
-; CHECK-NEXT:    mv t0, a0
+; CHECK-NEXT:    mv a7, a0
 ; CHECK-NEXT:    cv.setup 0, a3, .LBB1_3
 ; CHECK-NEXT:  # %bb.2: # %inner
-; CHECK-NEXT:    lh t1, 0(t0)
+; CHECK-NEXT:    lh t1, 0(a7)
 ; CHECK-NEXT:    fadd.h a6, a6, t1
-; CHECK-NEXT:    addi t0, t0, 2
+; CHECK-NEXT:    addi a7, a7, 2
 ; CHECK-NEXT:  .LBB1_3: # %outer.latch
 ; CHECK-NEXT:    # Label of block must be emitted
 ; CHECK-NEXT:    slli a7, a4, 1
@@ -139,10 +139,10 @@ define void @shuffle_sci_b(ptr %a, ptr %d, i32 %n) {
 ; CHECK-NEXT:    cv.setup 0, a2, .LBB2_2
 ; CHECK-NEXT:  # %bb.1: # %loop
 ; CHECK-NEXT:    lw a3, 0(a0)
+; CHECK-NEXT:    addi a0, a0, 4
 ; CHECK-NEXT:    cv.shufflei0.sci.b a3, a3, 27
 ; CHECK-NEXT:    sw a3, 0(a1)
 ; CHECK-NEXT:    addi a1, a1, 4
-; CHECK-NEXT:    addi a0, a0, 4
 ; CHECK-NEXT:  .LBB2_2: # %exit
 ; CHECK-NEXT:    # Label of block must be emitted
 ; CHECK-NEXT:    .option pop
@@ -191,8 +191,8 @@ define void @rounding_mode(ptr %a, ptr %d, i32 %n) {
 ; CHECK-NEXT:    srl a6, a4, a6
 ; CHECK-NEXT:    andi a6, a6, 7
 ; CHECK-NEXT:    mul a5, a5, a6
-; CHECK-NEXT:    addi a3, a3, 1
 ; CHECK-NEXT:    sw a5, 0(a1)
+; CHECK-NEXT:    addi a3, a3, 1
 ; CHECK-NEXT:    addi a1, a1, 4
 ; CHECK-NEXT:    addi a0, a0, 4
 ; CHECK-NEXT:  .LBB3_2: # %exit

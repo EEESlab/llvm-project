@@ -23,75 +23,63 @@
 define void @f(ptr noalias nocapture noundef %0, ptr noalias nocapture noundef readonly %1, i32 noundef %2, i32 noundef %3)  {
 ; CHECK-LABEL: f:
 ; CHECK:       # %bb.0:
-; CHECK-NEXT:    blez a2, .LBB0_12
+; CHECK-NEXT:    blez a2, .LBB0_11
 ; CHECK-NEXT:  # %bb.1: # %.preheader2
-; CHECK-NEXT:    addi sp, sp, -16
-; CHECK-NEXT:    .cfi_def_cfa_offset 16
-; CHECK-NEXT:    sw s0, 12(sp) # 4-byte Folded Spill
-; CHECK-NEXT:    .cfi_offset s0, -4
-; CHECK-NEXT:    li t1, 0
-; CHECK-NEXT:    addi a4, a3, -1
+; CHECK-NEXT:    li a4, 0
 ; CHECK-NEXT:    slli a5, a3, 2
-; CHECK-NEXT:    addi a6, a0, 4
+; CHECK-NEXT:    addi a6, a3, -1
+; CHECK-NEXT:    addi a7, a0, 4
 ; CHECK-NEXT:    addi a1, a1, 4
-; CHECK-NEXT:    mv a7, a4
 ; CHECK-NEXT:    j .LBB0_2
 ; CHECK-NEXT:  .LBB0_2: # =>This Inner Loop Header: Depth=1
-; CHECK-NEXT:    addi t0, t1, 1
-; CHECK-NEXT:    bge t0, a3, .LBB0_8
+; CHECK-NEXT:    addi a4, a4, 1
+; CHECK-NEXT:    bge a4, a3, .LBB0_8
 ; CHECK-NEXT:  # %bb.3: # %.preheader
 ; CHECK-NEXT:    # in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    sub t1, a4, t1
-; CHECK-NEXT:    mv t2, a6
+; CHECK-NEXT:    mv t0, a7
 ; CHECK-NEXT:    .p2align 2
 ; CHECK-NEXT:    .option push
 ; CHECK-NEXT:    .option norvc
 ; CHECK-NEXT:    cv.setup 1, a2, .LBB0_7
 ; CHECK-NEXT:  # %bb.4: # in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    mv t5, a1
-; CHECK-NEXT:    mv t6, t2
-; CHECK-NEXT:    cv.setup 0, t1, .LBB0_6
+; CHECK-NEXT:    mv t2, a1
+; CHECK-NEXT:    mv t3, t0
+; CHECK-NEXT:    cv.setup 0, a6, .LBB0_6
 ; CHECK-NEXT:  # %bb.5: # in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    flw fa5, 0(t5)
-; CHECK-NEXT:    flw fa4, 0(t6)
+; CHECK-NEXT:    flw fa5, 0(t2)
+; CHECK-NEXT:    flw fa4, 0(t3)
 ; CHECK-NEXT:    fadd.s fa5, fa5, fa4
-; CHECK-NEXT:    fsw fa5, 0(t6)
-; CHECK-NEXT:    addi t6, t6, 4
-; CHECK-NEXT:    addi t5, t5, 4
+; CHECK-NEXT:    fsw fa5, 0(t3)
+; CHECK-NEXT:    addi t3, t3, 4
+; CHECK-NEXT:    addi t2, t2, 4
 ; CHECK-NEXT:  .LBB0_6: # in Loop: Header=BB0_2 Depth=1
 ; CHECK-NEXT:    # Label of block must be emitted
-; CHECK-NEXT:    add t2, t2, a5
+; CHECK-NEXT:    add t0, t0, a5
 ; CHECK-NEXT:  .LBB0_7: # in Loop: Header=BB0_2 Depth=1
 ; CHECK-NEXT:    # Label of block must be emitted
 ; CHECK-NEXT:    .option pop
 ; CHECK-NEXT:    cv.sw zero, (a0), 4
-; CHECK-NEXT:    addi a6, a6, 4
+; CHECK-NEXT:    addi a6, a6, -1
+; CHECK-NEXT:    addi a7, a7, 4
 ; CHECK-NEXT:    addi a1, a1, 4
-; CHECK-NEXT:    addi a7, a7, -1
-; CHECK-NEXT:    mv t1, t0
-; CHECK-NEXT:    beq t0, a2, .LBB0_11
+; CHECK-NEXT:    beq a4, a2, .LBB0_11
 ; CHECK-NEXT:    j .LBB0_2
 ; CHECK-NEXT:  .LBB0_8: # in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    mv t2, a0
+; CHECK-NEXT:    mv t0, a0
 ; CHECK-NEXT:    .p2align 2
 ; CHECK-NEXT:    .option push
 ; CHECK-NEXT:    .option norvc
 ; CHECK-NEXT:    cv.setup 0, a2, .LBB0_10
 ; CHECK-NEXT:  # %bb.9: # in Loop: Header=BB0_2 Depth=1
-; CHECK-NEXT:    flw fa5, 0(t2)
+; CHECK-NEXT:    flw fa5, 0(t0)
 ; CHECK-NEXT:    fadd.s fa5, fa5, fa5
-; CHECK-NEXT:    fsw fa5, 0(t2)
-; CHECK-NEXT:    add t2, t2, a5
+; CHECK-NEXT:    fsw fa5, 0(t0)
+; CHECK-NEXT:    add t0, t0, a5
 ; CHECK-NEXT:  .LBB0_10: # in Loop: Header=BB0_2 Depth=1
 ; CHECK-NEXT:    # Label of block must be emitted
 ; CHECK-NEXT:    .option pop
 ; CHECK-NEXT:    j .LBB0_7
 ; CHECK-NEXT:  .LBB0_11:
-; CHECK-NEXT:    lw s0, 12(sp) # 4-byte Folded Reload
-; CHECK-NEXT:    .cfi_restore s0
-; CHECK-NEXT:    addi sp, sp, 16
-; CHECK-NEXT:    .cfi_def_cfa_offset 0
-; CHECK-NEXT:  .LBB0_12:
 ; CHECK-NEXT:    ret
   %5 = icmp sgt i32 %2, 0
   br i1 %5, label %7, label %6

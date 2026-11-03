@@ -877,6 +877,11 @@ public:
   /// preheader.
   LLVM_ABI bool shouldLoopTermFoldRewriteExitUses() const;
 
+  /// Return false if LoopTermFold should leave the exit condition of \p L
+  /// alone, e.g. because the loop is expected to become a hardware loop,
+  /// which replaces the exit condition and uses the original trip count.
+  LLVM_ABI bool shouldLoopTermFold(const Loop *L) const;
+
   /// \returns true if LSR should not optimize a chain that includes \p I.
   LLVM_ABI bool isProfitableLSRChainElement(Instruction *I) const;
 
