@@ -479,6 +479,9 @@ The current vendor extensions supported are:
 ``XCVbi``
   LLVM implements `version 1.0.0 of the CORE-V immediate branching custom instructions specification <https://github.com/openhwgroup/cv32e40p/blob/cv32e40p_v1.3.2/docs/source/instruction_set_extensions.rst>`__ by OpenHW Group.  All instructions are prefixed with `cv.` as described in the specification. These instructions are only available for riscv32 at this time.
 
+``XCVhv``
+  LLVM implements packed half-precision floating point for CORE-V: two IEEE binary16 lanes in one 32-bit integer register, on top of Zhinx. All instructions are prefixed with ``cv.``. These instructions are only available for riscv32 at this time.
+
 ``XSiFivecdiscarddlone``
   LLVM implements `the SiFive sf.cdiscard.d.l1 instruction <https://sifive.cdn.prismic.io/sifive/767804da-53b2-4893-97d5-b7c030ae0a94_s76mc_core_complex_manual_21G3.pdf>`__ by SiFive.
 

@@ -53,6 +53,20 @@ static cl::opt<unsigned>
 static cl::opt<bool> EnableOrLikeSelectOpt("enable-riscv-or-like-select",
                                            cl::init(true), cl::Hidden);
 
+cl::opt<bool> llvm::EnableXCVhvVectorize(
+    "riscv-xcvhv-vectorize",
+    cl::desc("Let the loop and SLP vectorizers form <2 x half> vectors for "
+             "CORE-V Xcvhv (32-bit vectors held in a GPR)"),
+    cl::init(false), cl::Hidden);
+
+/// True if \p Ty is a fixed vector that type legalization turns into v2f16
+/// pieces held in GPRs (CORE-V Xcvhv).
+bool RISCVTTIImpl::isXCVhvVectorTy(Type *Ty) const {
+  if (!ST->hasXCVhvPackedType() || !isa<FixedVectorType>(Ty))
+    return false;
+  return getTypeLegalizationCost(Ty).second == MVT::v2f16;
+}
+
 /// Return why the body of \p L cannot become a CORE-V hardware loop body, or
 /// null if nothing in it prevents that.
 const char *RISCVTTIImpl::getHardwareLoopBlocker(const Loop *L) const {
@@ -503,6 +517,11 @@ RISCVTTIImpl::getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
   case TargetTransformInfo::RGK_Scalar:
     return TypeSize::getFixed(ST->getXLen());
   case TargetTransformInfo::RGK_FixedWidthVector:
+    // CORE-V Xcvhv: a GPR holds a <2 x half>. Opt-in (see
+    // EnableXCVhvVectorize), as it makes 32-bit vectors of every element
+    // type candidates and only v2f16 has packed instructions.
+    if (ST->hasXCVhvPackedType() && EnableXCVhvVectorize)
+      return TypeSize::getFixed(32);
     return TypeSize::getFixed(
         ST->useRVVForFixedLengthVectors() ? LMUL * ST->getRealMinVLen() : 0);
   case TargetTransformInfo::RGK_ScalableVector:
@@ -796,6 +815,12 @@ RISCVTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy,
   // to avoid crashes in getMinRVVVectorSizeInBits()
   if (ST->hasStdExtP() && isa<FixedVectorType>(SrcTy))
     return 1;
+
+  // CORE-V Xcvhv: a lane swap/broadcast is one cv.shuffle.sci.h (XCVsimd)
+  // or a few shifts per v2f16 piece.
+  if (isXCVhvVectorTy(SrcTy))
+    return getTypeLegalizationCost(SrcTy).first *
+           (ST->hasVendorXCVsimd() ? 1 : 3);
 
   std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(SrcTy);
 
@@ -1124,6 +1149,12 @@ InstructionCost RISCVTTIImpl::getScalarizationOverhead(
   if (ST->hasStdExtP() && isa<FixedVectorType>(Ty)) {
     return 1; // Treat as single instruction cost for now
   }
+
+  // CORE-V Xcvhv: per-lane inserts/extracts (getVectorInstrCost), not the
+  // RVV slide sequences below.
+  if (isXCVhvVectorTy(Ty))
+    return BaseT::getScalarizationOverhead(Ty, DemandedElts, Insert, Extract,
+                                           CostKind, ForPoisonSrc, VL, VIC);
 
   // A build_vector (which is m1 sized or smaller) can be done in no
   // worse than one vslide1down.vx per element in the type.  We could
@@ -2447,6 +2478,15 @@ InstructionCost RISCVTTIImpl::getMemoryOpCost(unsigned Opcode, Type *Src,
     return BaseT::getMemoryOpCost(Opcode, Src, Alignment, AddressSpace,
                                   CostKind, OpInfo, I);
 
+  // CORE-V Xcvhv: a v2f16 access is one lw/sw only when it is 4-byte
+  // aligned or the core handles misaligned scalar accesses; otherwise it is
+  // split into two halfword accesses and a repack.
+  if (CostKind == TTI::TCK_RecipThroughput && isXCVhvVectorTy(Src) &&
+      Alignment < Align(4) && !ST->enableUnalignedScalarMem()) {
+    InstructionCost Pieces = getTypeLegalizationCost(Src).first;
+    return Pieces * (Opcode == Instruction::Load ? 4 : 3);
+  }
+
   InstructionCost Cost = 0;
   if (Opcode == Instruction::Store && OpInfo.isConstant())
     Cost += getStoreImmCost(Src, OpInfo, CostKind);
@@ -2660,6 +2700,17 @@ InstructionCost RISCVTTIImpl::getVectorInstrCost(
   // to avoid crashes in getMinRVVVectorSizeInBits()
   if (ST->hasStdExtP() && isa<FixedVectorType>(Val)) {
     return 1; // Treat as single instruction cost for now
+  }
+
+  // CORE-V Xcvhv: lane 0 is the low half of the GPR (free to extract), lane
+  // 1 is a shift; an insert is cv.insert.h (XCVsimd) or a shift/and/or
+  // sequence.
+  if (isXCVhvVectorTy(Val) && (Opcode == Instruction::ExtractElement ||
+                                 Opcode == Instruction::InsertElement)) {
+    bool KnownLane0 = Index != -1U && Index % 2 == 0;
+    if (Opcode == Instruction::ExtractElement)
+      return KnownLane0 ? 0 : 1;
+    return ST->hasVendorXCVsimd() ? 1 : (KnownLane0 ? 3 : 4);
   }
 
   if (Opcode != Instruction::ExtractElement &&
