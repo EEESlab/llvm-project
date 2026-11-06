@@ -21,9 +21,12 @@
 #include "llvm/Analysis/TargetTransformInfo.h"
 #include "llvm/CodeGen/BasicTTIImpl.h"
 #include "llvm/IR/Function.h"
+#include "llvm/Support/CommandLine.h"
 #include <optional>
 
 namespace llvm {
+
+extern cl::opt<bool> EnableXCVhvVectorize;
 
 class RISCVTTIImpl final : public BasicTTIImplBase<RISCVTTIImpl> {
   using BaseT = BasicTTIImplBase<RISCVTTIImpl>;
@@ -178,8 +181,12 @@ public:
                           MemIntrinsicInfo &Info) const override;
 
   unsigned getMinVectorRegisterBitWidth() const override {
+    if (ST->hasXCVhvPackedType() && EnableXCVhvVectorize)
+      return 32;
     return ST->useRVVForFixedLengthVectors() ? 16 : 0;
   }
+
+  bool isXCVhvVectorTy(Type *Ty) const;
 
   InstructionCost
   getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy, VectorType *SrcTy,
@@ -489,6 +496,8 @@ public:
       // only register that can be used to hold a mask.
       // FIXME: Should we conservatively return 31 as the number of usable
       // vector registers?
+      if (ST->hasXCVhvPackedType() && EnableXCVhvVectorize)
+        return 31; // CORE-V Xcvhv vectors share the GPRs.
       return ST->hasVInstructions() ? 32 : 0;
     }
     llvm_unreachable("unknown register class");

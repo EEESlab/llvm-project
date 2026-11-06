@@ -332,6 +332,16 @@ def YGPR : RegisterClass<"RISCV", [YLenVT], 64,
   let DecoderMethod = "DecodeSimpleRegisterClass<RISCV::X0_Y, 32, /*RVELimit=*/16>";
 }
 
+// CORE-V Xcvhv: two binary16 lanes packed in one GPR. Same registers and
+// register info as GPR, so TableGen relates it to GPR as a sub-class (it sorts
+// right after GPR: equal size and member count are ordered by name), and the
+// GPR copy and spill code covers it. A separate class rather than another type
+// in GPRRegisterClass keeps the existing untyped GPR patterns unambiguous.
+def XLenVecF16VT : ValueTypeByHwMode<[RV32, RV64], [v2f16, v4f16]>;
+def GPRV2F16 : RISCVRegisterClass<[XLenVecF16VT], 32, (add GPR)> {
+  let RegInfos = XLenRI;
+}
+
 def GPRX0 : GPRRegisterClass<(add X0)>;
 
 def GPRX1 : GPRRegisterClass<(add X1)> {

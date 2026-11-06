@@ -340,6 +340,15 @@ public:
   }
 
   bool isPExtPackedType(MVT VT) const;
+
+  // CORE-V Xcvhv keeps v2f16 in a GPR. Not used together with V, which
+  // would claim the fixed-length vector types for the vector registers.
+  bool hasXCVhvPackedType() const {
+    return HasVendorXCVhv && !is64Bit() && !hasVInstructions();
+  }
+  bool isXCVhvPackedType(MVT VT) const {
+    return VT == MVT::v2f16 && hasXCVhvPackedType();
+  }
   bool isPExtPackedDoubleType(MVT VT) const;
 
   // Returns VLEN divided by DLEN. Where DLEN is the datapath width of the

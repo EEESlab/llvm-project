@@ -304,6 +304,10 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     }
   }
 
+  // CORE-V Xcvhv: two binary16 lanes in one GPR.
+  if (Subtarget.hasXCVhvPackedType())
+    addRegisterClass(MVT::v2f16, &RISCV::GPRV2F16RegClass);
+
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
 
@@ -685,6 +689,43 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
                          {MVT::v2i16, MVT::v4i8, MVT::v2i32, MVT::v4i16},
                          Legal);
     }
+  }
+
+  // CORE-V Xcvhv (v2f16 in a GPR). Everything is expanded (scalarized onto
+  // the Zhinx scalar ops) unless there is a packed instruction for it, as the
+  // P extension above starts its packed types.
+  if (Subtarget.hasXCVhvPackedType()) {
+    const MVT VT = MVT::v2f16;
+    for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op)
+      setOperationAction(Op, VT, Expand);
+    // cv.vfadd/vfsub/vfmul/vfmin/vfmax.h, cv.vfsgnj[n,x].h and
+    // cv.vfmac/vfmre.h (FMA). fdiv and fsqrt stay expanded to fdiv.h/fsqrt.h
+    // per lane: cv.vfdiv.h and cv.vfsqrt.h are not selected.
+    setOperationAction({ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FMA,
+                        ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUMNUM,
+                        ISD::FMAXIMUMNUM, ISD::FNEG, ISD::FABS,
+                        ISD::FCOPYSIGN},
+                       VT, Legal);
+    // Bitcasts to/from i32 and f32 are register copies.
+    setOperationAction(ISD::BITCAST, VT, Legal);
+    // Lane moves (lowerXCVhvOp): constants become an i32, lane extracts
+    // are free (lane 0) or a shift (lane 1); builds and inserts are cv.pack /
+    // cv.insert.h with XCVsimd and shift/or sequences without it. Shuffles
+    // stay expanded: they become BUILD_VECTORs of lane extracts, which the
+    // XCVsimd patterns turn into cv.shuffle.sci.h or cv.insert.h.
+    setOperationAction({ISD::BUILD_VECTOR, ISD::EXTRACT_VECTOR_ELT,
+                        ISD::INSERT_VECTOR_ELT, ISD::SCALAR_TO_VECTOR},
+                       VT, Custom);
+    // 32-bit lw/sw, and a select of the GPR.
+    setOperationPromotedToType(ISD::LOAD, VT, MVT::i32);
+    setOperationPromotedToType(ISD::STORE, VT, MVT::i32);
+    setOperationPromotedToType(ISD::SELECT, VT, MVT::i32);
+    for (MVT OtherVT : MVT::fp_fixedlen_vector_valuetypes()) {
+      setTruncStoreAction(OtherVT, VT, Expand);
+      setLoadExtAction(ISD::EXTLOAD, OtherVT, VT, Expand);
+    }
+    // Compares (cv.vfeq/vflt/...) are not selected: their v2i16 result type
+    // is only legal with P. SETCC on v2f16 is scalarized onto feq.h/flt.h.
   }
 
   if (Subtarget.hasStdExtZfbfmin()) {
@@ -7888,6 +7929,14 @@ static SDValue lowerCttzElts(SDValue Op, SelectionDAG &DAG,
 
 SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
                                             SelectionDAG &DAG) const {
+  if (Subtarget.hasXCVhvPackedType()) {
+    MVT VT = Op.getSimpleValueType();
+    if (Op.getOpcode() == ISD::EXTRACT_VECTOR_ELT)
+      VT = Op.getOperand(0).getSimpleValueType();
+    if (Subtarget.isXCVhvPackedType(VT))
+      return lowerXCVhvOp(Op, DAG);
+  }
+
   switch (Op.getOpcode()) {
   default:
     reportFatalInternalError(
@@ -26583,6 +26632,115 @@ bool RISCVTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return true;
 }
 
+// CORE-V Xcvhv lane moves on v2f16 (lane 0 in bits 15:0 of the GPR).
+SDValue RISCVTargetLowering::lowerXCVhvOp(SDValue Op,
+                                            SelectionDAG &DAG) const {
+  SDLoc DL(Op);
+  const MVT VT = MVT::v2f16;
+  const MVT EltVT = MVT::f16;
+  const bool HasSIMD = Subtarget.hasVendorXCVsimd();
+
+  // The 16 bits of an f16 in the low half of an i32 (upper bits undefined).
+  auto ToI32 = [&](SDValue Elt) {
+    return DAG.getNode(RISCVISD::FMV_X_ANYEXTH, DL, MVT::i32, Elt);
+  };
+  // lo | hi << 16 as an i32, for targets without cv.pack.
+  auto PackI32 = [&](SDValue Lo, SDValue Hi) {
+    SDValue LoBits =
+        DAG.getNode(ISD::AND, DL, MVT::i32, ToI32(Lo),
+                    DAG.getConstant(0xffff, DL, MVT::i32));
+    SDValue HiBits = DAG.getNode(ISD::SHL, DL, MVT::i32, ToI32(Hi),
+                                 DAG.getConstant(16, DL, MVT::i32));
+    return DAG.getBitcast(
+        VT, DAG.getNode(ISD::OR, DL, MVT::i32, LoBits, HiBits));
+  };
+
+  switch (Op.getOpcode()) {
+  default:
+    llvm_unreachable("Unexpected Xcvhv custom lowering");
+  case ISD::SCALAR_TO_VECTOR:
+    return DAG.getBitcast(VT, ToI32(Op.getOperand(0)));
+  case ISD::BUILD_VECTOR: {
+    SDValue Lo = Op.getOperand(0), Hi = Op.getOperand(1);
+    // A constant vector is the i32 of its bits (an undef lane is zero).
+    auto Bits = [](SDValue V) -> std::optional<uint32_t> {
+      if (V.isUndef())
+        return 0;
+      if (auto *C = dyn_cast<ConstantFPSDNode>(V))
+        return C->getValueAPF().bitcastToAPInt().getZExtValue() & 0xffff;
+      return std::nullopt;
+    };
+    std::optional<uint32_t> LoBits = Bits(Lo), HiBits = Bits(Hi);
+    if (LoBits && HiBits)
+      return DAG.getBitcast(
+          VT, DAG.getConstant(*LoBits | (*HiBits << 16), DL, MVT::i32));
+    // Only lane 0 defined: the scalar's register as it is.
+    if (Hi.isUndef())
+      return DAG.getBitcast(VT, ToI32(Lo));
+    // Only lane 1 defined: a splat (one cv.pack, or the .r form).
+    if (Lo.isUndef())
+      return DAG.getBuildVector(VT, DL, {Hi, Hi});
+    // cv.pack / cv.shuffle.sci.h / cv.insert.h / cv.vfcpka.h.s patterns.
+    if (HasSIMD)
+      return Op;
+    // A splat stays a BUILD_VECTOR so that it can fold into the .r form of
+    // its user; on its own it is selected as a shift/or pair.
+    if (Lo == Hi)
+      return Op;
+    // Without XCVsimd only cv.vfcpka.h.s can build a vector directly.
+    if (Lo.getOpcode() == ISD::FP_ROUND && Hi.getOpcode() == ISD::FP_ROUND &&
+        Lo.getOperand(0).getValueType() == MVT::f32 &&
+        Hi.getOperand(0).getValueType() == MVT::f32)
+      return Op;
+    return PackI32(Lo, Hi);
+  }
+  case ISD::EXTRACT_VECTOR_ELT: {
+    // Lane 0 or 1: patterns (nothing, or a shift by 16). A run-time lane
+    // number is a shift by 16 * lane.
+    SDValue Idx = Op.getOperand(1);
+    if (isa<ConstantSDNode>(Idx))
+      return Op;
+    SDValue Word = DAG.getBitcast(MVT::i32, Op.getOperand(0));
+    SDValue Shamt =
+        DAG.getNode(ISD::SHL, DL, MVT::i32, DAG.getZExtOrTrunc(Idx, DL, MVT::i32),
+                    DAG.getConstant(4, DL, MVT::i32));
+    return DAG.getNode(RISCVISD::FMV_H_X, DL, EltVT,
+                       DAG.getNode(ISD::SRL, DL, MVT::i32, Word, Shamt));
+  }
+  case ISD::INSERT_VECTOR_ELT: {
+    SDValue Vec = Op.getOperand(0), Elt = Op.getOperand(1),
+            Idx = Op.getOperand(2);
+    if (auto *C = dyn_cast<ConstantSDNode>(Idx)) {
+      // A constant lane is a BUILD_VECTOR with the other lane extracted
+      // (cv.insert.h with XCVsimd).
+      if (C->getZExtValue() > 1)
+        return DAG.getUNDEF(VT);
+      unsigned Lane = C->getZExtValue();
+      SDValue Ops[2];
+      Ops[Lane] = Elt;
+      Ops[1 - Lane] = DAG.getNode(ISD::EXTRACT_VECTOR_ELT, DL, EltVT, Vec,
+                                  DAG.getVectorIdxConstant(1 - Lane, DL));
+      return DAG.getBuildVector(VT, DL, Ops);
+    }
+    // Run-time lane: (Vec & ~(0xffff << sh)) | ((Elt & 0xffff) << sh).
+    SDValue Shamt =
+        DAG.getNode(ISD::SHL, DL, MVT::i32, DAG.getZExtOrTrunc(Idx, DL, MVT::i32),
+                    DAG.getConstant(4, DL, MVT::i32));
+    SDValue Mask = DAG.getNode(ISD::SHL, DL, MVT::i32,
+                               DAG.getConstant(0xffff, DL, MVT::i32), Shamt);
+    SDValue EltBits =
+        DAG.getNode(ISD::AND, DL, MVT::i32, ToI32(Elt),
+                    DAG.getConstant(0xffff, DL, MVT::i32));
+    EltBits = DAG.getNode(ISD::SHL, DL, MVT::i32, EltBits, Shamt);
+    SDValue Kept = DAG.getNode(ISD::AND, DL, MVT::i32,
+                               DAG.getBitcast(MVT::i32, Vec),
+                               DAG.getNOT(DL, Mask, MVT::i32));
+    return DAG.getBitcast(
+        VT, DAG.getNode(ISD::OR, DL, MVT::i32, Kept, EltBits));
+  }
+  }
+}
+
 bool RISCVTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
                                                      EVT VT) const {
   EVT SVT = VT.getScalarType();
@@ -26592,6 +26750,9 @@ bool RISCVTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
 
   switch (SVT.getSimpleVT().SimpleTy) {
   case MVT::f16:
+    // CORE-V Xcvhv: cv.vfmac.h.
+    if (VT.isVector() && Subtarget.hasXCVhvPackedType())
+      return VT == MVT::v2f16;
     return VT.isVector() ? Subtarget.hasVInstructionsF16()
                          : Subtarget.hasStdExtZfhOrZhinx();
   case MVT::f32:
@@ -26726,7 +26887,13 @@ bool RISCVTargetLowering::isMulAddWithConstProfitable(SDValue AddNode,
 bool RISCVTargetLowering::allowsMisalignedMemoryAccesses(
     EVT VT, unsigned AddrSpace, Align Alignment, MachineMemOperand::Flags Flags,
     unsigned *Fast) const {
-  if (!VT.isVector() || Subtarget.hasStdExtP()) {
+  // A v2f16 (CORE-V Xcvhv) is loaded and stored as an i32 (LOAD/STORE are
+  // promoted), so it has the alignment rules of a scalar access, not the
+  // element-alignment rule of RVV below. Answering "element aligned is fine"
+  // would let the DAG combiner merge two f16 accesses into a v2f16 one that
+  // legalization splits back up.
+  if (!VT.isVector() || Subtarget.hasStdExtP() ||
+      (VT.isSimple() && Subtarget.isXCVhvPackedType(VT.getSimpleVT()))) {
     if (Fast)
       *Fast = Subtarget.enableUnalignedScalarMem();
     return Subtarget.enableUnalignedScalarMem();

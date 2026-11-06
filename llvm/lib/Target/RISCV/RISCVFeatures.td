@@ -1587,6 +1587,14 @@ def HasVendorXCVhwlp
       AssemblerPredicate<(all_of FeatureVendorXCVhwlp),
                          "'XCVhwlp' (CORE-V hardware loops)">;
 
+def FeatureVendorXCVhv
+    : RISCVExtension<1, 0, "CORE-V Packed Half-Precision Floating-Point",
+                     [FeatureStdExtZhinx]>;
+def HasVendorXCVhv
+    : Predicate<"Subtarget->hasVendorXCVhv()">,
+      AssemblerPredicate<(all_of FeatureVendorXCVhv),
+                         "'XCVhv' (CORE-V Packed Half-Precision Floating-Point)">;
+
 // MIPS Extensions
 
 def FeatureVendorXMIPSCMov

@@ -74,6 +74,7 @@
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvalu %s -o - | FileCheck --check-prefix=RV32XCVALU %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvbitmanip %s -o - | FileCheck --check-prefix=RV32XCVBITMANIP %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvelw %s -o - | FileCheck --check-prefix=RV32XCVELW %s
+; RUN: llc -mtriple=riscv32 -mattr=+xcvhv %s -o - | FileCheck --check-prefix=RV32XCVHV %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvmac %s -o - | FileCheck --check-prefix=RV32XCVMAC %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvmem %s -o - | FileCheck --check-prefix=RV32XCVMEM %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvsimd %s -o - | FileCheck --check-prefix=RV32XCVSIMD %s
@@ -415,6 +416,7 @@
 ; RV32XCVALU: .attribute 5, "rv32i2p1_xcvalu1p0"
 ; RV32XCVBITMANIP: .attribute 5, "rv32i2p1_xcvbitmanip1p0"
 ; RV32XCVELW: .attribute 5, "rv32i2p1_xcvelw1p0"
+; RV32XCVHV: .attribute 5, "rv32i2p1_zicsr2p0_zfinx1p0_zhinx1p0_zhinxmin1p0_xcvhv1p0"
 ; RV32XCVMAC: .attribute 5, "rv32i2p1_xcvmac1p0"
 ; RV32XCVMEM: .attribute 5, "rv32i2p1_xcvmem1p0"
 ; RV32XCVSIMD: .attribute 5, "rv32i2p1_xcvsimd1p0"

@@ -597,6 +597,7 @@ static bool CC_RISCV_Impl(unsigned ValNo, MVT ValVT, MVT LocVT,
   // FIXME: If P extension and V extension are enabled at the same time,
   // who should go first?
   if (!Subtarget.isPExtPackedType(LocVT) &&
+      !Subtarget.isXCVhvPackedType(LocVT) &&
       (LocVT.isVector() || LocVT.isRISCVVectorTuple())) {
     Reg = allocateRVVReg(LocVT, ValNo, State, TLI);
     if (Reg) {
@@ -656,6 +657,7 @@ static bool CC_RISCV_Impl(unsigned ValNo, MVT ValVT, MVT LocVT,
 
   assert(((LocVT.isFloatingPoint() && !LocVT.isVector()) || LocVT == XLenVT ||
           Subtarget.isPExtPackedType(LocVT) ||
+          Subtarget.isXCVhvPackedType(LocVT) ||
           (TLI.getSubtarget().hasVInstructions() &&
            (LocVT.isVector() || LocVT.isRISCVVectorTuple()))) &&
          "Expected an XLenVT or vector types at this stage");
@@ -750,6 +752,17 @@ static bool CC_RISCV_FastCC(unsigned ValNo, MVT ValVT, MVT LocVT,
   }
 
   ArrayRef<MCPhysReg> ArgGPRs = getFastCCArgGPRs(ABI);
+
+  // CORE-V Xcvhv: a v2f16 is one GPR.
+  if (Subtarget.isXCVhvPackedType(LocVT)) {
+    if (MCRegister Reg = State.AllocateReg(ArgGPRs)) {
+      State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
+      return false;
+    }
+    int64_t Offset = State.AllocateStack(4, Align(4));
+    State.addLoc(CCValAssign::getMem(ValNo, ValVT, Offset, LocVT, LocInfo));
+    return false;
+  }
 
   if (LocVT.isVector()) {
     if (MCRegister Reg = allocateRVVReg(ValVT, ValNo, State, TLI)) {
