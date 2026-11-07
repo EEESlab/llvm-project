@@ -1595,6 +1595,22 @@ def HasVendorXCVhv
       AssemblerPredicate<(all_of FeatureVendorXCVhv),
                          "'XCVhv' (CORE-V Packed Half-Precision Floating-Point)">;
 
+def FeatureVendorXCVbf
+    : RISCVExtension<1, 0, "CORE-V Scalar BFloat16 Floating-Point",
+                     [FeatureStdExtZfinx]>;
+def HasVendorXCVbf
+    : Predicate<"Subtarget->hasVendorXCVbf()">,
+      AssemblerPredicate<(all_of FeatureVendorXCVbf),
+                         "'XCVbf' (CORE-V Scalar BFloat16 Floating-Point)">;
+
+def FeatureVendorXCVbfv
+    : RISCVExtension<1, 0, "CORE-V Packed BFloat16 Floating-Point",
+                     [FeatureVendorXCVbf]>;
+def HasVendorXCVbfv
+    : Predicate<"Subtarget->hasVendorXCVbfv()">,
+      AssemblerPredicate<(all_of FeatureVendorXCVbfv),
+                         "'XCVbfv' (CORE-V Packed BFloat16 Floating-Point)">;
+
 // MIPS Extensions
 
 def FeatureVendorXMIPSCMov

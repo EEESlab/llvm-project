@@ -513,7 +513,7 @@ private:
   SDValue lowerVectorTrunc(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerVectorFPExtendOrRound(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerINSERT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
-  SDValue lowerXCVhvOp(SDValue Op, SelectionDAG &DAG) const;
+  SDValue lowerXCVPackedFPOp(SDValue Op, SelectionDAG &DAG) const;
   SDValue lowerEXTRACT_VECTOR_ELT(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_WO_CHAIN(SDValue Op, SelectionDAG &DAG) const;
   SDValue LowerINTRINSIC_W_CHAIN(SDValue Op, SelectionDAG &DAG) const;

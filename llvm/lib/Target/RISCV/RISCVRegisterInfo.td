@@ -341,6 +341,11 @@ def XLenVecF16VT : ValueTypeByHwMode<[RV32, RV64], [v2f16, v4f16]>;
 def GPRV2F16 : RISCVRegisterClass<[XLenVecF16VT], 32, (add GPR)> {
   let RegInfos = XLenRI;
 }
+// CORE-V XCVbfv: two bfloat16 lanes packed in one GPR, as GPRV2F16.
+def XLenVecBF16VT : ValueTypeByHwMode<[RV32, RV64], [v2bf16, v4bf16]>;
+def GPRV2BF16 : RISCVRegisterClass<[XLenVecBF16VT], 32, (add GPR)> {
+  let RegInfos = XLenRI;
+}
 
 def GPRX0 : GPRRegisterClass<(add X0)>;
 
@@ -574,6 +579,13 @@ def GPRF16 : RISCVRegisterClass<[f16], 16, (add (sequence "X%u_H", 10, 17),
                                                 (sequence "X%u_H", 8, 9),
                                                 (sequence "X%u_H", 18, 27),
                                                 (sequence "X%u_H", 0, 4))> {
+  let DecoderMethod = "DecodeSimpleRegisterClass<RISCV::X0_H, 32, /*RVELimit=*/16>";
+}
+// CORE-V XCVbf: bfloat16 in the same 16-bit GPR sub-registers. A separate
+// class because the Zhinx patterns take their type from GPRF16; with equal
+// members and spill size it is a sub-class of GPRF16, so the GPRF16 copy and
+// spill code covers it.
+def GPRBF16 : RISCVRegisterClass<[bf16], 16, (add GPRF16)> {
   let DecoderMethod = "DecodeSimpleRegisterClass<RISCV::X0_H, 32, /*RVELimit=*/16>";
 }
 def GPRF16C : RISCVRegisterClass<[f16], 16, (add (sequence "X%u_H", 10, 15),

@@ -78,6 +78,8 @@
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvmac %s -o - | FileCheck --check-prefix=RV32XCVMAC %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvmem %s -o - | FileCheck --check-prefix=RV32XCVMEM %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvsimd %s -o - | FileCheck --check-prefix=RV32XCVSIMD %s
+; RUN: llc -mtriple=riscv32 -mattr=+xcvbf %s -o - | FileCheck --check-prefix=RV32XCVBF %s
+; RUN: llc -mtriple=riscv32 -mattr=+xcvbfv %s -o - | FileCheck --check-prefix=RV32XCVBFV %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xcvbi %s -o - | FileCheck --check-prefix=RV32XCVBI %s
 ; RUN: llc -mtriple=riscv32 -mattr=+experimental-xqccmt %s -o - | FileCheck --check-prefixes=CHECK,RV32XQCCMT %s
 ; RUN: llc -mtriple=riscv32 -mattr=+xwchc %s -o - | FileCheck --check-prefix=RV32XWCHC %s
@@ -420,6 +422,8 @@
 ; RV32XCVMAC: .attribute 5, "rv32i2p1_xcvmac1p0"
 ; RV32XCVMEM: .attribute 5, "rv32i2p1_xcvmem1p0"
 ; RV32XCVSIMD: .attribute 5, "rv32i2p1_xcvsimd1p0"
+; RV32XCVBF: .attribute 5, "rv32i2p1_zicsr2p0_zfinx1p0_xcvbf1p0"
+; RV32XCVBFV: .attribute 5, "rv32i2p1_zicsr2p0_zfinx1p0_xcvbf1p0_xcvbfv1p0"
 ; RV32XCVBI: .attribute 5, "rv32i2p1_xcvbi1p0"
 ; RV32XWCHC: .attribute 5, "rv32i2p1_c2p0_zca1p0_xwchc2p2"
 ; RV32XQCCMT: .attribute 5, "rv32i2p1_c2p0_zicsr2p0_zca1p0_xqccmt0p1"

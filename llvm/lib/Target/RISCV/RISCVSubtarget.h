@@ -349,6 +349,21 @@ public:
   bool isXCVhvPackedType(MVT VT) const {
     return VT == MVT::v2f16 && hasXCVhvPackedType();
   }
+  // CORE-V XCVbfv keeps v2bf16 in a GPR, on the same terms.
+  bool hasXCVbfvPackedType() const {
+    return HasVendorXCVbfv && !is64Bit() && !hasVInstructions();
+  }
+  bool isXCVbfvPackedType(MVT VT) const {
+    return VT == MVT::v2bf16 && hasXCVbfvPackedType();
+  }
+  // A packed 2 x 16-bit FP type in a GPR (v2f16 with XCVhv, v2bf16 with
+  // XCVbfv).
+  bool hasXCVPackedFPType() const {
+    return hasXCVhvPackedType() || hasXCVbfvPackedType();
+  }
+  bool isXCVPackedFPType(MVT VT) const {
+    return isXCVhvPackedType(VT) || isXCVbfvPackedType(VT);
+  }
   bool isPExtPackedDoubleType(MVT VT) const;
 
   // Returns VLEN divided by DLEN. Where DLEN is the datapath width of the

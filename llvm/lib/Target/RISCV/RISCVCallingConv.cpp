@@ -455,7 +455,11 @@ static bool CC_RISCV_Impl(unsigned ValNo, MVT ValVT, MVT LocVT,
     }
   }
 
-  if (LocVT == MVT::f16 && Subtarget.hasStdExtZhinxmin()) {
+  // CORE-V XCVbf: a bf16 goes in the low half of a GPR, as an f16 does with
+  // Zhinx. Without XCVbf it is passed in the low half of a GPR too (the
+  // custom-GPR case below), so the two are compatible.
+  if ((LocVT == MVT::f16 && Subtarget.hasStdExtZhinxmin()) ||
+      (LocVT == MVT::bf16 && Subtarget.hasVendorXCVbf())) {
     if (MCRegister Reg = State.AllocateReg(getArgGPR16s(ABI))) {
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
@@ -597,7 +601,7 @@ static bool CC_RISCV_Impl(unsigned ValNo, MVT ValVT, MVT LocVT,
   // FIXME: If P extension and V extension are enabled at the same time,
   // who should go first?
   if (!Subtarget.isPExtPackedType(LocVT) &&
-      !Subtarget.isXCVhvPackedType(LocVT) &&
+      !Subtarget.isXCVPackedFPType(LocVT) &&
       (LocVT.isVector() || LocVT.isRISCVVectorTuple())) {
     Reg = allocateRVVReg(LocVT, ValNo, State, TLI);
     if (Reg) {
@@ -657,7 +661,7 @@ static bool CC_RISCV_Impl(unsigned ValNo, MVT ValVT, MVT LocVT,
 
   assert(((LocVT.isFloatingPoint() && !LocVT.isVector()) || LocVT == XLenVT ||
           Subtarget.isPExtPackedType(LocVT) ||
-          Subtarget.isXCVhvPackedType(LocVT) ||
+          Subtarget.isXCVPackedFPType(LocVT) ||
           (TLI.getSubtarget().hasVInstructions() &&
            (LocVT.isVector() || LocVT.isRISCVVectorTuple()))) &&
          "Expected an XLenVT or vector types at this stage");
@@ -722,7 +726,8 @@ static bool CC_RISCV_FastCC(unsigned ValNo, MVT ValVT, MVT LocVT,
   MVT XLenVT = Subtarget.getXLenVT();
 
   // Check if there is an available GPRF16 before hitting the stack.
-  if ((LocVT == MVT::f16 && Subtarget.hasStdExtZhinxmin())) {
+  if ((LocVT == MVT::f16 && Subtarget.hasStdExtZhinxmin()) ||
+      (LocVT == MVT::bf16 && Subtarget.hasVendorXCVbf())) {
     if (MCRegister Reg = State.AllocateReg(getFastCCArgGPRF16s(ABI))) {
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
@@ -753,8 +758,8 @@ static bool CC_RISCV_FastCC(unsigned ValNo, MVT ValVT, MVT LocVT,
 
   ArrayRef<MCPhysReg> ArgGPRs = getFastCCArgGPRs(ABI);
 
-  // CORE-V Xcvhv: a v2f16 is one GPR.
-  if (Subtarget.isXCVhvPackedType(LocVT)) {
+  // CORE-V Xcvhv / XCVbfv: a v2f16 or v2bf16 is one GPR.
+  if (Subtarget.isXCVPackedFPType(LocVT)) {
     if (MCRegister Reg = State.AllocateReg(ArgGPRs)) {
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;
