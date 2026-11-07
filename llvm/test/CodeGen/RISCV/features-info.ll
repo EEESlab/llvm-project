@@ -211,6 +211,8 @@
 ; CHECK-NEXT:   xandesvsintload                  - 'XAndesVSIntLoad' (Andes Vector INT4 Load Extension).
 ; CHECK-NEXT:   xcheriot                         - 'XCheriot' (CHERIoT extension).
 ; CHECK-NEXT:   xcvalu                           - 'XCValu' (CORE-V ALU Operations).
+; CHECK-NEXT:   xcvbf                            - 'XCVbf' (CORE-V Scalar BFloat16 Floating-Point).
+; CHECK-NEXT:   xcvbfv                           - 'XCVbfv' (CORE-V Packed BFloat16 Floating-Point).
 ; CHECK-NEXT:   xcvbi                            - 'XCVbi' (CORE-V Immediate Branching).
 ; CHECK-NEXT:   xcvbitmanip                      - 'XCVbitmanip' (CORE-V Bit Manipulation).
 ; CHECK-NEXT:   xcvelw                           - 'XCVelw' (CORE-V Event Load Word).

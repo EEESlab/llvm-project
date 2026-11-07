@@ -72,6 +72,7 @@ def isSelectPseudo
                        Select_GPR_Using_CC_UImm7_NDS,
                        Select_FPR16_Using_CC_GPR,
                        Select_FPR16INX_Using_CC_GPR,
+                       Select_FPR16BFINX_Using_CC_GPR,
                        Select_FPR32_Using_CC_GPR,
                        Select_FPR32INX_Using_CC_GPR,
                        Select_FPR64_Using_CC_GPR,

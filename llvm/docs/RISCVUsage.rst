@@ -476,6 +476,12 @@ The current vendor extensions supported are:
 ``XCVsimd``
   LLVM implements `version 1.0.0 of the CORE-V SIMD custom instructions specification <https://github.com/openhwgroup/cv32e40p/blob/cv32e40p_v1.3.2/docs/source/instruction_set_extensions.rst>`__ by OpenHW Group.  All instructions are prefixed with `cv.` as described in the specification.
 
+``XCVbf``
+  LLVM implements scalar bfloat16 floating point for CORE-V: bfloat16 values in the low 16 bits of an integer register, on top of Zfinx, with arithmetic, fused multiply-add, compare and conversion instructions. ``__bf16`` arithmetic is evaluated in bfloat16. All instructions are prefixed with ``cv.``.
+
+``XCVbfv``
+  LLVM implements packed bfloat16 floating point for CORE-V: two bfloat16 lanes in one 32-bit integer register, on top of XCVbf. All instructions are prefixed with ``cv.``. These instructions are only available for riscv32 at this time.
+
 ``XCVbi``
   LLVM implements `version 1.0.0 of the CORE-V immediate branching custom instructions specification <https://github.com/openhwgroup/cv32e40p/blob/cv32e40p_v1.3.2/docs/source/instruction_set_extensions.rst>`__ by OpenHW Group.  All instructions are prefixed with `cv.` as described in the specification. These instructions are only available for riscv32 at this time.
 

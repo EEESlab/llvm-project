@@ -485,7 +485,8 @@ static constexpr FeatureBitset XCVFeatureGroup = {
     RISCV::FeatureVendorXCVmac,      RISCV::FeatureVendorXCVmem,
     RISCV::FeatureVendorXCValu,      RISCV::FeatureVendorXCVsimd,
     RISCV::FeatureVendorXCVbi,       RISCV::FeatureVendorXCVhwlp,
-    RISCV::FeatureVendorXCVhv};
+    RISCV::FeatureVendorXCVhv,       RISCV::FeatureVendorXCVbf,
+    RISCV::FeatureVendorXCVbfv};
 
 static constexpr FeatureBitset XqciFeatureGroup = {
     RISCV::FeatureVendorXqcia,   RISCV::FeatureVendorXqciac,

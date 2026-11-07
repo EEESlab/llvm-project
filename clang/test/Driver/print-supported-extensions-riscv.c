@@ -173,6 +173,8 @@
 // CHECK-NEXT:     xandesvsintload      5.0       'XAndesVSIntLoad' (Andes Vector INT4 Load Extension)
 // CHECK-NEXT:     xcheriot             1.0       'XCheriot' (CHERIoT extension)
 // CHECK-NEXT:     xcvalu               1.0       'XCValu' (CORE-V ALU Operations)
+// CHECK-NEXT:     xcvbf                1.0       'XCVbf' (CORE-V Scalar BFloat16 Floating-Point)
+// CHECK-NEXT:     xcvbfv               1.0       'XCVbfv' (CORE-V Packed BFloat16 Floating-Point)
 // CHECK-NEXT:     xcvbi                1.0       'XCVbi' (CORE-V Immediate Branching)
 // CHECK-NEXT:     xcvbitmanip          1.0       'XCVbitmanip' (CORE-V Bit Manipulation)
 // CHECK-NEXT:     xcvelw               1.0       'XCVelw' (CORE-V Event Load Word)

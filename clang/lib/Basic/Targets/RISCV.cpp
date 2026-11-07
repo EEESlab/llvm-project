@@ -433,6 +433,12 @@ bool RISCVTargetInfo::handleTargetFeatures(std::vector<std::string> &Features,
   if (ISAInfo->hasExtension("zfh") || ISAInfo->hasExtension("zhinx"))
     HasFastHalfType = true;
 
+  // CORE-V XCVbf has bfloat16 arithmetic instructions, so __bf16 expressions
+  // are evaluated in bfloat16, with one rounding per operation, rather than
+  // in float with one rounding at the end (excess precision).
+  if (ISAInfo->hasExtension("xcvbf"))
+    HasFullBFloat16 = true;
+
   FastScalarUnalignedAccess =
       llvm::is_contained(Features, "+unaligned-scalar-mem");
 

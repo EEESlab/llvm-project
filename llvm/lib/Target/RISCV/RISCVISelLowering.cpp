@@ -146,6 +146,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     addRegisterClass(MVT::f64, &RISCV::FPR64RegClass);
   if (Subtarget.hasStdExtZhinxmin())
     addRegisterClass(MVT::f16, &RISCV::GPRF16RegClass);
+  // CORE-V XCVbf: bfloat16 in the low half of a GPR, like Zhinx's f16.
+  if (Subtarget.hasVendorXCVbf())
+    addRegisterClass(MVT::bf16, &RISCV::GPRBF16RegClass);
   if (Subtarget.hasStdExtZfinx())
     addRegisterClass(MVT::f32, &RISCV::GPRF32RegClass);
   if (Subtarget.hasStdExtZdinx()) {
@@ -307,6 +310,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   // CORE-V Xcvhv: two binary16 lanes in one GPR.
   if (Subtarget.hasXCVhvPackedType())
     addRegisterClass(MVT::v2f16, &RISCV::GPRV2F16RegClass);
+  // CORE-V XCVbfv: two bfloat16 lanes in one GPR.
+  if (Subtarget.hasXCVbfvPackedType())
+    addRegisterClass(MVT::v2bf16, &RISCV::GPRV2BF16RegClass);
 
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
@@ -691,16 +697,18 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     }
   }
 
-  // CORE-V Xcvhv (v2f16 in a GPR). Everything is expanded (scalarized onto
-  // the Zhinx scalar ops) unless there is a packed instruction for it, as the
-  // P extension above starts its packed types.
-  if (Subtarget.hasXCVhvPackedType()) {
-    const MVT VT = MVT::v2f16;
+  // CORE-V Xcvhv (v2f16 in a GPR) and XCVbfv (v2bf16 in a GPR). Everything
+  // is expanded (scalarized onto the scalar ops, Zhinx or XCVbf) unless there
+  // is a packed instruction for it, as the P extension above starts its
+  // packed types.
+  for (MVT VT : {MVT::v2f16, MVT::v2bf16}) {
+    if (!Subtarget.isXCVPackedFPType(VT))
+      continue;
     for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op)
       setOperationAction(Op, VT, Expand);
-    // cv.vfadd/vfsub/vfmul/vfmin/vfmax.h, cv.vfsgnj[n,x].h and
-    // cv.vfmac/vfmre.h (FMA). fdiv and fsqrt stay expanded to fdiv.h/fsqrt.h
-    // per lane: cv.vfdiv.h and cv.vfsqrt.h are not selected.
+    // cv.vfadd/vfsub/vfmul/vfmin/vfmax, cv.vfsgnj[n,x] and cv.vfmac/vfmre
+    // (FMA). fdiv and fsqrt stay expanded to the scalar instructions per
+    // lane: cv.vfdiv and cv.vfsqrt are not selected.
     setOperationAction({ISD::FADD, ISD::FSUB, ISD::FMUL, ISD::FMA,
                         ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUMNUM,
                         ISD::FMAXIMUMNUM, ISD::FNEG, ISD::FABS,
@@ -708,7 +716,7 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
                        VT, Legal);
     // Bitcasts to/from i32 and f32 are register copies.
     setOperationAction(ISD::BITCAST, VT, Legal);
-    // Lane moves (lowerXCVhvOp): constants become an i32, lane extracts
+    // Lane moves (lowerXCVPackedFPOp): constants become an i32, lane extracts
     // are free (lane 0) or a shift (lane 1); builds and inserts are cv.pack /
     // cv.insert.h with XCVsimd and shift/or sequences without it. Shuffles
     // stay expanded: they become BUILD_VECTORs of lane extracts, which the
@@ -725,7 +733,7 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       setLoadExtAction(ISD::EXTLOAD, OtherVT, VT, Expand);
     }
     // Compares (cv.vfeq/vflt/...) are not selected: their v2i16 result type
-    // is only legal with P. SETCC on v2f16 is scalarized onto feq.h/flt.h.
+    // is only legal with P. SETCC is scalarized onto the scalar compares.
   }
 
   if (Subtarget.hasStdExtZfbfmin()) {
@@ -741,6 +749,53 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction(ISD::FCOPYSIGN, MVT::bf16, Custom);
     setOperationAction({ISD::FP_TO_SINT, ISD::FP_TO_UINT}, XLenVT, Custom);
     setOperationAction({ISD::SINT_TO_FP, ISD::UINT_TO_FP}, XLenVT, Custom);
+  }
+
+  // CORE-V XCVbf (bfloat16 in a GPR). Add, subtract, multiply, divide,
+  // square root, FMA, min/max, sign injection and the compares have
+  // instructions. Everything else is computed on f32, which holds every
+  // bfloat16 exactly. The bfloat16 instructions have no rounding-mode operand,
+  // so the strict FP operations are computed on f32 as well.
+  if (Subtarget.hasVendorXCVbf()) {
+    setOperationAction({ISD::FMINNUM, ISD::FMAXNUM, ISD::FMINIMUMNUM,
+                        ISD::FMAXIMUMNUM, ISD::FCANONICALIZE},
+                       MVT::bf16, Legal);
+    setCondCodeAction(FPCCToExpand, MVT::bf16, Expand);
+    setOperationAction(ISD::SELECT_CC, MVT::bf16, Expand);
+    setOperationAction(ISD::SELECT, MVT::bf16, Custom);
+    setOperationAction(ISD::BR_CC, MVT::bf16, Expand);
+    setOperationAction(ISD::BITCAST, MVT::i16, Custom);
+    setOperationAction(
+        {ISD::FMINIMUM, ISD::FMAXIMUM, ISD::FCEIL,  ISD::FFLOOR, ISD::FTRUNC,
+         ISD::FRINT,    ISD::FROUND,   ISD::FROUNDEVEN, ISD::FNEARBYINT,
+         ISD::FREM,     ISD::FPOW,     ISD::FPOWI,  ISD::FCOS,   ISD::FSIN,
+         ISD::FSINCOS,  ISD::FTAN,     ISD::FACOS,  ISD::FASIN,  ISD::FATAN,
+         ISD::FATAN2,   ISD::FCOSH,    ISD::FSINH,  ISD::FTANH,  ISD::FEXP,
+         ISD::FEXP2,    ISD::FEXP10,   ISD::FLOG,   ISD::FLOG2,  ISD::FLOG10,
+         ISD::FCBRT,    ISD::FLDEXP,   ISD::FFREXP, ISD::FMODF},
+        MVT::bf16, Promote);
+    setOperationAction(
+        {ISD::STRICT_FADD,  ISD::STRICT_FSUB,       ISD::STRICT_FMUL,
+         ISD::STRICT_FDIV,  ISD::STRICT_FSQRT,      ISD::STRICT_FMA,
+         ISD::STRICT_FSETCC, ISD::STRICT_FSETCCS,   ISD::STRICT_FCEIL,
+         ISD::STRICT_FFLOOR, ISD::STRICT_FNEARBYINT, ISD::STRICT_FRINT,
+         ISD::STRICT_FROUND, ISD::STRICT_FROUNDEVEN, ISD::STRICT_FTRUNC,
+         ISD::STRICT_FLDEXP},
+        MVT::bf16, Promote);
+    setOperationAction(ISD::STRICT_FP_ROUND, MVT::bf16, Legal);
+    setOperationAction(ISD::STRICT_FP_EXTEND, MVT::f32, Legal);
+    setOperationAction({ISD::LROUND, ISD::LLROUND, ISD::LRINT, ISD::LLRINT,
+                        ISD::STRICT_LROUND, ISD::STRICT_LLROUND,
+                        ISD::STRICT_LRINT, ISD::STRICT_LLRINT},
+                       MVT::bf16, Custom);
+    // bf16 -> int goes through f32 (lowerFP_TO_INT); int -> bf16 is
+    // cv.fcvt.bf16.w[u] (lowerINT_TO_FP).
+    setOperationAction({ISD::FP_TO_SINT, ISD::FP_TO_UINT}, XLenVT, Custom);
+    setOperationAction({ISD::SINT_TO_FP, ISD::UINT_TO_FP}, XLenVT, Custom);
+    // There is no i64 -> bfloat16 libcall to rely on: on RV32, i64 -> bf16
+    // goes through f32 (__floatdisf), as LLVM does for a soft-promoted bf16.
+    if (!Subtarget.is64Bit())
+      setOperationAction({ISD::SINT_TO_FP, ISD::UINT_TO_FP}, MVT::i64, Custom);
   }
 
   if (Subtarget.hasStdExtZfhminOrZhinxmin()) {
@@ -2795,7 +2850,7 @@ bool RISCVTargetLowering::isFPImmLegal(const APFloat &Imm, EVT VT,
   else if (VT == MVT::f64)
     IsLegalVT = Subtarget.hasStdExtDOrZdinx();
   else if (VT == MVT::bf16)
-    IsLegalVT = Subtarget.hasStdExtZfbfmin();
+    IsLegalVT = Subtarget.hasStdExtZfbfmin() || Subtarget.hasVendorXCVbf();
 
   if (!IsLegalVT)
     return false;
@@ -3537,7 +3592,13 @@ InstructionCost RISCVTargetLowering::getVSlideVICost(MVT VT) const {
 static SDValue lowerINT_TO_FP(SDValue Op, SelectionDAG &DAG,
                               const RISCVSubtarget &Subtarget) {
   // f16 conversions are promoted to f32 when Zfh/Zhinx are not supported.
-  // bf16 conversions are always promoted to f32.
+  // bf16 conversions are promoted to f32, except that XCVbf converts a
+  // 32-bit integer directly (cv.fcvt.bf16.w[u]): going through f32 would
+  // round twice.
+  if (Op.getValueType() == MVT::bf16 && Subtarget.hasVendorXCVbf() &&
+      !Op->isStrictFPOpcode() && Op.getOperand(0).getValueType() == MVT::i32 &&
+      !Subtarget.is64Bit())
+    return Op;
   if ((Op.getValueType() == MVT::f16 && !Subtarget.hasStdExtZfhOrZhinx()) ||
       Op.getValueType() == MVT::bf16) {
     bool IsStrict = Op->isStrictFPOpcode();
@@ -7929,12 +7990,27 @@ static SDValue lowerCttzElts(SDValue Op, SelectionDAG &DAG,
 
 SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
                                             SelectionDAG &DAG) const {
-  if (Subtarget.hasXCVhvPackedType()) {
+  // XCVbf on RV32: i64 -> bf16 through f32. Any other i64 -> FP conversion
+  // keeps its default expansion (libcall).
+  if (Subtarget.hasVendorXCVbf() && !Subtarget.is64Bit() &&
+      (Op.getOpcode() == ISD::SINT_TO_FP ||
+       Op.getOpcode() == ISD::UINT_TO_FP) &&
+      Op.getOperand(0).getValueType() == MVT::i64) {
+    if (Op.getValueType() != MVT::bf16)
+      return SDValue();
+    SDLoc DL(Op);
+    return DAG.getNode(
+        ISD::FP_ROUND, DL, MVT::bf16,
+        DAG.getNode(Op.getOpcode(), DL, MVT::f32, Op.getOperand(0)),
+        DAG.getIntPtrConstant(0, DL, /*isTarget=*/true));
+  }
+
+  if (Subtarget.hasXCVPackedFPType()) {
     MVT VT = Op.getSimpleValueType();
     if (Op.getOpcode() == ISD::EXTRACT_VECTOR_ELT)
       VT = Op.getOperand(0).getSimpleValueType();
-    if (Subtarget.isXCVhvPackedType(VT))
-      return lowerXCVhvOp(Op, DAG);
+    if (Subtarget.isXCVPackedFPType(VT))
+      return lowerXCVPackedFPOp(Op, DAG);
   }
 
   switch (Op.getOpcode()) {
@@ -7996,7 +8072,8 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
     MVT XLenVT = Subtarget.getXLenVT();
     if (Op0VT == MVT::i16 &&
         ((VT == MVT::f16 && Subtarget.hasStdExtZfhminOrZhinxmin()) ||
-         (VT == MVT::bf16 && Subtarget.hasStdExtZfbfmin()))) {
+         (VT == MVT::bf16 &&
+          (Subtarget.hasStdExtZfbfmin() || Subtarget.hasVendorXCVbf())))) {
       SDValue NewOp0 = DAG.getNode(ISD::ANY_EXTEND, DL, XLenVT, Op0);
       return DAG.getNode(RISCVISD::FMV_H_X, DL, VT, NewOp0);
     }
@@ -8500,7 +8577,8 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
   case ISD::LLROUND: {
     if (Op.getValueType().isVector())
       return lowerVectorXRINT_XROUND(Op, DAG, Subtarget);
-    assert(Op.getOperand(0).getValueType() == MVT::f16 &&
+    assert((Op.getOperand(0).getValueType() == MVT::f16 ||
+            Op.getOperand(0).getValueType() == MVT::bf16) &&
            "Unexpected custom legalisation");
     SDLoc DL(Op);
     SDValue Ext = DAG.getNode(ISD::FP_EXTEND, DL, MVT::f32, Op.getOperand(0));
@@ -8510,7 +8588,8 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
   case ISD::STRICT_LLRINT:
   case ISD::STRICT_LROUND:
   case ISD::STRICT_LLROUND: {
-    assert(Op.getOperand(1).getValueType() == MVT::f16 &&
+    assert((Op.getOperand(1).getValueType() == MVT::f16 ||
+            Op.getOperand(1).getValueType() == MVT::bf16) &&
            "Unexpected custom legalisation");
     SDLoc DL(Op);
     SDValue Ext = DAG.getNode(ISD::STRICT_FP_EXTEND, DL, {MVT::f32, MVT::Other},
@@ -15665,7 +15744,8 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     MVT XLenVT = Subtarget.getXLenVT();
     if (VT == MVT::i16 &&
         ((Op0VT == MVT::f16 && Subtarget.hasStdExtZfhminOrZhinxmin()) ||
-         (Op0VT == MVT::bf16 && Subtarget.hasStdExtZfbfmin()))) {
+         (Op0VT == MVT::bf16 &&
+          (Subtarget.hasStdExtZfbfmin() || Subtarget.hasVendorXCVbf())))) {
       SDValue FPConv = DAG.getNode(RISCVISD::FMV_X_ANYEXTH, DL, XLenVT, Op0);
       Results.push_back(DAG.getNode(ISD::TRUNCATE, DL, MVT::i16, FPConv));
     } else if (VT == MVT::i32 && Op0VT == MVT::f32 && Subtarget.is64Bit() &&
@@ -24606,6 +24686,7 @@ RISCVTargetLowering::EmitInstrWithCustomInserter(MachineInstr &MI,
   case RISCV::Select_GPR_Using_CC_UImm7_NDS:
   case RISCV::Select_FPR16_Using_CC_GPR:
   case RISCV::Select_FPR16INX_Using_CC_GPR:
+  case RISCV::Select_FPR16BFINX_Using_CC_GPR:
   case RISCV::Select_FPR32_Using_CC_GPR:
   case RISCV::Select_FPR32INX_Using_CC_GPR:
   case RISCV::Select_FPR64_Using_CC_GPR:
@@ -26632,15 +26713,20 @@ bool RISCVTargetLowering::getPostIndexedAddressParts(SDNode *N, SDNode *Op,
   return true;
 }
 
-// CORE-V Xcvhv lane moves on v2f16 (lane 0 in bits 15:0 of the GPR).
-SDValue RISCVTargetLowering::lowerXCVhvOp(SDValue Op,
-                                            SelectionDAG &DAG) const {
+// CORE-V Xcvhv / XCVbfv lane moves on v2f16 / v2bf16 (lane 0 in bits 15:0 of
+// the GPR).
+SDValue RISCVTargetLowering::lowerXCVPackedFPOp(SDValue Op,
+                                                  SelectionDAG &DAG) const {
   SDLoc DL(Op);
-  const MVT VT = MVT::v2f16;
-  const MVT EltVT = MVT::f16;
+  // v2f16 (XCVhv) or v2bf16 (XCVbfv).
+  const MVT VT = Op.getOpcode() == ISD::EXTRACT_VECTOR_ELT
+                     ? Op.getOperand(0).getSimpleValueType()
+                     : Op.getSimpleValueType();
+  const MVT EltVT = VT.getVectorElementType();
   const bool HasSIMD = Subtarget.hasVendorXCVsimd();
 
-  // The 16 bits of an f16 in the low half of an i32 (upper bits undefined).
+  // The 16 bits of an element in the low half of an i32 (upper bits
+  // undefined).
   auto ToI32 = [&](SDValue Elt) {
     return DAG.getNode(RISCVISD::FMV_X_ANYEXTH, DL, MVT::i32, Elt);
   };
@@ -26657,7 +26743,7 @@ SDValue RISCVTargetLowering::lowerXCVhvOp(SDValue Op,
 
   switch (Op.getOpcode()) {
   default:
-    llvm_unreachable("Unexpected Xcvhv custom lowering");
+    llvm_unreachable("Unexpected XCV packed FP custom lowering");
   case ISD::SCALAR_TO_VECTOR:
     return DAG.getBitcast(VT, ToI32(Op.getOperand(0)));
   case ISD::BUILD_VECTOR: {
@@ -26749,6 +26835,11 @@ bool RISCVTargetLowering::isFMAFasterThanFMulAndFAdd(const MachineFunction &MF,
     return false;
 
   switch (SVT.getSimpleVT().SimpleTy) {
+  case MVT::bf16:
+    // CORE-V XCVbf / XCVbfv: cv.fmadd.bf16, cv.vfmac.bf16.
+    if (VT.isVector())
+      return VT == MVT::v2bf16 && Subtarget.hasXCVbfvPackedType();
+    return Subtarget.hasVendorXCVbf();
   case MVT::f16:
     // CORE-V Xcvhv: cv.vfmac.h.
     if (VT.isVector() && Subtarget.hasXCVhvPackedType())
@@ -26887,13 +26978,14 @@ bool RISCVTargetLowering::isMulAddWithConstProfitable(SDValue AddNode,
 bool RISCVTargetLowering::allowsMisalignedMemoryAccesses(
     EVT VT, unsigned AddrSpace, Align Alignment, MachineMemOperand::Flags Flags,
     unsigned *Fast) const {
-  // A v2f16 (CORE-V Xcvhv) is loaded and stored as an i32 (LOAD/STORE are
+  // A v2f16 / v2bf16 (CORE-V Xcvhv / XCVbfv) is loaded and stored as an i32
+  // (LOAD/STORE are
   // promoted), so it has the alignment rules of a scalar access, not the
   // element-alignment rule of RVV below. Answering "element aligned is fine"
   // would let the DAG combiner merge two f16 accesses into a v2f16 one that
   // legalization splits back up.
   if (!VT.isVector() || Subtarget.hasStdExtP() ||
-      (VT.isSimple() && Subtarget.isXCVhvPackedType(VT.getSimpleVT()))) {
+      (VT.isSimple() && Subtarget.isXCVPackedFPType(VT.getSimpleVT()))) {
     if (Fast)
       *Fast = Subtarget.enableUnalignedScalarMem();
     return Subtarget.enableUnalignedScalarMem();

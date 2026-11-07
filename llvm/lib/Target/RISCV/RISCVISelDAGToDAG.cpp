@@ -1595,8 +1595,9 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     default:
       llvm_unreachable("Unexpected size");
     case MVT::bf16:
-      assert(Subtarget->hasStdExtZfbfmin());
-      Opc = RISCV::FMV_H_X;
+      // CORE-V XCVbf keeps bf16 in a GPR, as Zhinx does f16.
+      assert(Subtarget->hasStdExtZfbfmin() || Subtarget->hasVendorXCVbf());
+      Opc = Subtarget->hasStdExtZfbfmin() ? RISCV::FMV_H_X : RISCV::COPY;
       break;
     case MVT::f16:
       Opc = Subtarget->hasStdExtZhinxmin() ? RISCV::COPY : RISCV::FMV_H_X;
@@ -1616,7 +1617,8 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     }
 
     SDNode *Res;
-    if (VT.SimpleTy == MVT::f16 && Opc == RISCV::COPY) {
+    if ((VT.SimpleTy == MVT::f16 || VT.SimpleTy == MVT::bf16) &&
+        Opc == RISCV::COPY) {
       Res =
           CurDAG->getTargetExtractSubreg(RISCV::sub_16, DL, VT, Imm).getNode();
     } else if (VT.SimpleTy == MVT::f32 && Opc == RISCV::COPY) {
