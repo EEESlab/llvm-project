@@ -86,12 +86,14 @@ def : WriteRes<WriteLDH, [CV32E40P_LSU]>;
 def : WriteRes<WriteLDW, [CV32E40P_LSU]>;
 def : WriteRes<WriteLDD, [CV32E40P_LSU]>;
 def : WriteRes<WriteFLD32, [CV32E40P_LSU]>;
+def : WriteRes<WriteFLD16, [CV32E40P_LSU]>;
 }
 def : WriteRes<WriteSTB, [CV32E40P_LSU]>;
 def : WriteRes<WriteSTH, [CV32E40P_LSU]>;
 def : WriteRes<WriteSTW, [CV32E40P_LSU]>;
 def : WriteRes<WriteSTD, [CV32E40P_LSU]>;
 def : WriteRes<WriteFST32, [CV32E40P_LSU]>;
+def : WriteRes<WriteFST16, [CV32E40P_LSU]>;
 
 // CORE-V XCVmem. These instructions carry no scheduling information of their
 // own. A post-increment access also writes back its base register, which is
@@ -152,6 +154,42 @@ def : WriteRes<WriteFCvtI64ToF32, []>;
 def : WriteRes<WriteFCvtF32ToI64, []>;
 }
 
+// 16-bit floating point: binary16 (Zfh/Zhinx and the packed-SIMD XCVhv) and
+// bfloat16 (XCVbf and the packed-SIMD XCVbfv). The 16-bit formats and
+// the two-lane packed operations run in the same FPU slices as single
+// precision, with the same pipeline depth, so they take the FP32 latencies.
+// A packed instruction processes both lanes at once and occupies the FPU for
+// a single cycle like a scalar one.
+let Latency = !add(CV32E40PFPUAddMulLat, 1) in {
+def : WriteRes<WriteFAdd16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFMul16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFMA16, [CV32E40P_FPU]>;
+}
+let Latency = !add(CV32E40PFPUOthersLat, 1) in {
+def : WriteRes<WriteFSGNJ16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFMinMax16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFCvtI32ToF16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFCvtF16ToI32, [CV32E40P_FPU]>;
+def : WriteRes<WriteFCvtF16ToF32, [CV32E40P_FPU]>;
+def : WriteRes<WriteFCvtF32ToF16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFClass16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFCmp16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFMovF16ToI16, [CV32E40P_FPU]>;
+def : WriteRes<WriteFMovI16ToF16, [CV32E40P_FPU]>;
+}
+// Divide/square root: modelled with the FP32 worst case.
+let Latency = 19, ReleaseAtCycles = [19] in {
+def : WriteRes<WriteFDiv16, [CV32E40P_FDIV]>;
+def : WriteRes<WriteFSqrt16, [CV32E40P_FDIV]>;
+}
+// RV64-only and double-precision conversions, never selected on this core.
+let Unsupported = true in {
+def : WriteRes<WriteFCvtI64ToF16, []>;
+def : WriteRes<WriteFCvtF16ToI64, []>;
+def : WriteRes<WriteFCvtF16ToF64, []>;
+def : WriteRes<WriteFCvtF64ToF16, []>;
+}
+
 // Others
 def : WriteRes<WriteCSR, []>;
 def : WriteRes<WriteNop, []>;
@@ -193,6 +231,26 @@ def : ReadAdvance<ReadFCvtI64ToF32, 0>;
 def : ReadAdvance<ReadFMovF32ToI32, 0>;
 def : ReadAdvance<ReadFMovI32ToF32, 0>;
 def : ReadAdvance<ReadFClass32, 0>;
+def : ReadAdvance<ReadFAdd16, 0>;
+def : ReadAdvance<ReadFMul16, 0>;
+def : ReadAdvance<ReadFMA16, 0>;
+def : ReadAdvance<ReadFMA16Addend, 0>;
+def : ReadAdvance<ReadFDiv16, 0>;
+def : ReadAdvance<ReadFSqrt16, 0>;
+def : ReadAdvance<ReadFCmp16, 0>;
+def : ReadAdvance<ReadFSGNJ16, 0>;
+def : ReadAdvance<ReadFMinMax16, 0>;
+def : ReadAdvance<ReadFCvtF16ToI32, 0>;
+def : ReadAdvance<ReadFCvtF16ToI64, 0>;
+def : ReadAdvance<ReadFCvtI32ToF16, 0>;
+def : ReadAdvance<ReadFCvtI64ToF16, 0>;
+def : ReadAdvance<ReadFCvtF16ToF32, 0>;
+def : ReadAdvance<ReadFCvtF32ToF16, 0>;
+def : ReadAdvance<ReadFCvtF16ToF64, 0>;
+def : ReadAdvance<ReadFCvtF64ToF16, 0>;
+def : ReadAdvance<ReadFMovF16ToI16, 0>;
+def : ReadAdvance<ReadFMovI16ToF16, 0>;
+def : ReadAdvance<ReadFClass16, 0>;
 def : ReadAdvance<ReadFStoreData, 0>;
 def : ReadAdvance<ReadFMemBase, 0>;
 
@@ -200,7 +258,6 @@ def : ReadAdvance<ReadFMemBase, 0>;
 // Unsupported extensions
 defm : UnsupportedSchedA;
 defm : UnsupportedSchedD;
-defm : UnsupportedSchedZfhmin;
 defm : UnsupportedSchedSFB;
 defm : UnsupportedSchedV;
 defm : UnsupportedSchedZabha;

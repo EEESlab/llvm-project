@@ -117,11 +117,11 @@ define <2 x bfloat> @vfmre(<2 x bfloat> %a, <2 x bfloat> %b, <2 x bfloat> %c) {
 define <2 x bfloat> @vfdiv_scalarized(<2 x bfloat> %a, <2 x bfloat> %b) {
 ; SIMD-LABEL: vfdiv_scalarized:
 ; SIMD:       # %bb.0:
-; SIMD-NEXT:    srli a2, a1, 16
-; SIMD-NEXT:    srli a3, a0, 16
+; SIMD-NEXT:    cv.fdiv.bf16 a2, a0, a1
+; SIMD-NEXT:    srli a1, a1, 16
+; SIMD-NEXT:    srli a0, a0, 16
 ; SIMD-NEXT:    cv.fdiv.bf16 a0, a0, a1
-; SIMD-NEXT:    cv.fdiv.bf16 a1, a3, a2
-; SIMD-NEXT:    cv.pack a0, a1, a0
+; SIMD-NEXT:    cv.pack a0, a0, a2
 ; SIMD-NEXT:    ret
 ;
 ; NOSIMD-LABEL: vfdiv_scalarized:
@@ -129,8 +129,8 @@ define <2 x bfloat> @vfdiv_scalarized(<2 x bfloat> %a, <2 x bfloat> %b) {
 ; NOSIMD-NEXT:    cv.fdiv.bf16 a2, a0, a1
 ; NOSIMD-NEXT:    srli a1, a1, 16
 ; NOSIMD-NEXT:    srli a0, a0, 16
-; NOSIMD-NEXT:    slli a2, a2, 16
 ; NOSIMD-NEXT:    cv.fdiv.bf16 a0, a0, a1
+; NOSIMD-NEXT:    slli a2, a2, 16
 ; NOSIMD-NEXT:    srli a2, a2, 16
 ; NOSIMD-NEXT:    slli a0, a0, 16
 ; NOSIMD-NEXT:    or a0, a2, a0
