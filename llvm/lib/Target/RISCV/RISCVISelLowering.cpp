@@ -1994,6 +1994,11 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       setIndexedStoreAction(ISD::POST_INC, MVT::f16, Legal);
     }
 
+    if (Subtarget.hasVendorXCVbf()) {
+      setIndexedLoadAction(ISD::POST_INC, MVT::bf16, Legal);
+      setIndexedStoreAction(ISD::POST_INC, MVT::bf16, Legal);
+    }
+
     if (Subtarget.hasStdExtZfinx()) {
       setIndexedLoadAction(ISD::POST_INC, MVT::f32, Legal);
       setIndexedStoreAction(ISD::POST_INC, MVT::f32, Legal);
