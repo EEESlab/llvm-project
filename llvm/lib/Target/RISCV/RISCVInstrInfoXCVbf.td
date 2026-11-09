@@ -399,6 +399,27 @@ def : Pat<(store (bf16 FPR16BFINX:$rs2),
           (SH_INX (COPY_TO_REGCLASS FPR16BFINX:$rs2, GPRF16), BasePtr:$rs1,
                   simm12_lo:$imm12)>;
 
+// XCVmem halfword accesses, as for f16 with Zhinxmin. The post-increment
+// loads are selected in RISCVISelDAGToDAG.
+let Predicates = [HasVendorXCVbf, HasVendorXCVmem, IsRV32],
+    AddedComplexity = 1 in {
+def : Pat<(bf16 (load CVrr:$regreg)),
+          (EXTRACT_SUBREG (CV_LH_rr CVrr:$regreg), sub_16)>;
+
+def : Pat<(post_store (bf16 GPRBF16:$rs2), GPR:$rs1, simm12_postinc_h:$imm12),
+          (CV_SH_ri_inc
+             (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRBF16:$rs2, sub_16),
+             GPR:$rs1, simm12_postinc_h:$imm12)>;
+def : Pat<(post_store (bf16 GPRBF16:$rs2), GPR:$rs1, GPR:$rs3),
+          (CV_SH_rr_inc
+             (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRBF16:$rs2, sub_16),
+             GPR:$rs1, GPR:$rs3)>;
+def : Pat<(store (bf16 GPRBF16:$rs2), CVrr:$regreg),
+          (CV_SH_rr
+             (INSERT_SUBREG (XLenVT (IMPLICIT_DEF)), GPRBF16:$rs2, sub_16),
+             CVrr:$regreg)>;
+} // Predicates = [HasVendorXCVbf, HasVendorXCVmem, IsRV32]
+
 // Moves (no conversion), e.g. bitcasts from and to i16.
 def : Pat<(bf16 (riscv_fmv_h_x GPR:$src)), (EXTRACT_SUBREG GPR:$src, sub_16)>;
 def : Pat<(riscv_fmv_x_anyexth (bf16 FPR16BFINX:$src)),
