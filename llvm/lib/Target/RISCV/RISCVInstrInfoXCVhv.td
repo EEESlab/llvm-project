@@ -48,11 +48,11 @@ let hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1,
     Uses = [FRM] in {
 class CVVF_rr<bits<5> op, bit r, dag outs, dag ins, string opcodestr>
     : RVInstR<{0b10, op}, {r, XCVHVFmtH}, OPC_OP, outs, ins, opcodestr,
-              "$rd, $rs1, $rs2">, Sched<[]>;
+              "$rd, $rs1, $rs2">;
 
 class CVVF_r<bits<5> op, bits<5> rs2val, bit r, string opcodestr>
     : RVInstR<{0b10, op}, {r, XCVHVFmtH}, OPC_OP, (outs GPRV2F16Op:$rd),
-              (ins GPRV2F16Op:$rs1), opcodestr, "$rd, $rs1">, Sched<[]> {
+              (ins GPRV2F16Op:$rs1), opcodestr, "$rd, $rs1"> {
   let rs2 = rs2val;
 }
 
@@ -61,7 +61,7 @@ let Constraints = "$rd = $rd_wb" in
 class CVVF_rrr<bits<5> op, bit r, DAGOperand rs2ty, string opcodestr>
     : RVInstR<{0b10, op}, {r, XCVHVFmtH}, OPC_OP, (outs GPRV2F16Op:$rd_wb),
               (ins GPRV2F16Op:$rd, GPRV2F16Op:$rs1, rs2ty:$rs2), opcodestr,
-              "$rd, $rs1, $rs2">, Sched<[]>;
+              "$rd, $rs1, $rs2">;
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1,
   // Uses = [FRM]
 
@@ -86,49 +86,74 @@ multiclass CVVF_rrr_m<bits<5> op, string mnemonic> {
 //===----------------------------------------------------------------------===//
 
 let Predicates = [HasVendorXCVhv, IsRV32], DecoderNamespace = "XCV" in {
-defm CV_VFADD : CVVF_rr_m<0b00001, "vfadd">;
-defm CV_VFSUB : CVVF_rr_m<0b00010, "vfsub">;
-defm CV_VFMUL : CVVF_rr_m<0b00011, "vfmul">;
-defm CV_VFDIV : CVVF_rr_m<0b00100, "vfdiv">;
+defm CV_VFADD : CVVF_rr_m<0b00001, "vfadd">,
+                Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+defm CV_VFSUB : CVVF_rr_m<0b00010, "vfsub">,
+                Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+defm CV_VFMUL : CVVF_rr_m<0b00011, "vfmul">,
+                Sched<[WriteFMul16, ReadFMul16, ReadFMul16]>;
+defm CV_VFDIV : CVVF_rr_m<0b00100, "vfdiv">,
+                Sched<[WriteFDiv16, ReadFDiv16, ReadFDiv16]>;
 let Uses = []<Register> in {
-defm CV_VFMIN : CVVF_rr_m<0b00101, "vfmin">;
-defm CV_VFMAX : CVVF_rr_m<0b00110, "vfmax">;
+defm CV_VFMIN : CVVF_rr_m<0b00101, "vfmin">,
+                Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
+defm CV_VFMAX : CVVF_rr_m<0b00110, "vfmax">,
+                Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
 }
-def CV_VFSQRT_H : CVVF_r<0b00111, 0b00000, 0, "cv.vfsqrt.h">;
+def CV_VFSQRT_H : CVVF_r<0b00111, 0b00000, 0, "cv.vfsqrt.h">,
+                  Sched<[WriteFSqrt16, ReadFSqrt16]>;
 
 // vfmac: rd = rd + rs1 * rs2, lane-wise.
 // vfmre: rd = rs1 * rs2 - rd, lane-wise.
-defm CV_VFMAC : CVVF_rrr_m<0b01000, "vfmac">;
-defm CV_VFMRE : CVVF_rrr_m<0b01001, "vfmre">;
+defm CV_VFMAC : CVVF_rrr_m<0b01000, "vfmac">,
+                Sched<[WriteFMA16, ReadFMA16Addend, ReadFMA16, ReadFMA16]>;
+defm CV_VFMRE : CVVF_rrr_m<0b01001, "vfmre">,
+                Sched<[WriteFMA16, ReadFMA16Addend, ReadFMA16, ReadFMA16]>;
 
 let mayRaiseFPException = 0, Uses = []<Register> in {
-defm CV_VFSGNJ  : CVVF_rr_m<0b01101, "vfsgnj">;
-defm CV_VFSGNJN : CVVF_rr_m<0b01110, "vfsgnjn">;
-defm CV_VFSGNJX : CVVF_rr_m<0b01111, "vfsgnjx">;
-def CV_VFCLASS_H : CVVF_r<0b01100, 0b00001, 0, "cv.vfclass.h">;
+defm CV_VFSGNJ  : CVVF_rr_m<0b01101, "vfsgnj">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+defm CV_VFSGNJN : CVVF_rr_m<0b01110, "vfsgnjn">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+defm CV_VFSGNJX : CVVF_rr_m<0b01111, "vfsgnjx">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+def CV_VFCLASS_H : CVVF_r<0b01100, 0b00001, 0, "cv.vfclass.h">,
+                   Sched<[WriteFClass16, ReadFClass16]>;
 }
 
 // Compares write 0 or 1 to each 16-bit lane of rd.
 let Uses = []<Register> in {
-defm CV_VFEQ : CVVF_rr_m<0b10000, "vfeq">;
-defm CV_VFNE : CVVF_rr_m<0b10001, "vfne">;
-defm CV_VFLT : CVVF_rr_m<0b10010, "vflt">;
-defm CV_VFGE : CVVF_rr_m<0b10011, "vfge">;
-defm CV_VFLE : CVVF_rr_m<0b10100, "vfle">;
-defm CV_VFGT : CVVF_rr_m<0b10101, "vfgt">;
+defm CV_VFEQ : CVVF_rr_m<0b10000, "vfeq">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFNE : CVVF_rr_m<0b10001, "vfne">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFLT : CVVF_rr_m<0b10010, "vflt">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFGE : CVVF_rr_m<0b10011, "vfge">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFLE : CVVF_rr_m<0b10100, "vfle">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFGT : CVVF_rr_m<0b10101, "vfgt">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
 }
 
 // Lane-wise binary16 <-> 16-bit integer; the r bit selects unsigned.
-def CV_VFCVT_X_H  : CVVF_r<0b01100, 0b00010, 0, "cv.vfcvt.x.h">;
-def CV_VFCVT_XU_H : CVVF_r<0b01100, 0b00010, 1, "cv.vfcvt.xu.h">;
-def CV_VFCVT_H_X  : CVVF_r<0b01100, 0b00011, 0, "cv.vfcvt.h.x">;
-def CV_VFCVT_H_XU : CVVF_r<0b01100, 0b00011, 1, "cv.vfcvt.h.xu">;
+def CV_VFCVT_X_H  : CVVF_r<0b01100, 0b00010, 0, "cv.vfcvt.x.h">,
+                    Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
+def CV_VFCVT_XU_H : CVVF_r<0b01100, 0b00010, 1, "cv.vfcvt.xu.h">,
+                    Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
+def CV_VFCVT_H_X  : CVVF_r<0b01100, 0b00011, 0, "cv.vfcvt.h.x">,
+                    Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
+def CV_VFCVT_H_XU : CVVF_r<0b01100, 0b00011, 1, "cv.vfcvt.h.xu">,
+                    Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
 
 // Rounds two floats to binary16: rs1 to lane 0, rs2 to lane 1. It writes the
 // whole of rd, so rd is not tied.
 def CV_VFCPKA_H_S : CVVF_rr<0b11000, 0, (outs GPRV2F16Op:$rd),
                             (ins FPR32INX:$rs1, FPR32INX:$rs2),
-                            "cv.vfcpka.h.s">;
+                            "cv.vfcpka.h.s">,
+                    Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16,
+                           ReadFCvtF32ToF16]>;
 } // Predicates = [HasVendorXCVhv, IsRV32], DecoderNamespace = "XCV"
 
 // Assembler-only aliases.

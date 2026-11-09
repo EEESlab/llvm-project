@@ -52,14 +52,14 @@ class CVBF_rr<bits<7> funct7, bits<3> funct3, string opcodestr,
               bit Commutable = 0, DAGOperand rdty = FPR16BFINX>
     : RVInstR<funct7, funct3, OPC_OP_FP, (outs rdty:$rd),
               (ins FPR16BFINX:$rs1, FPR16BFINX:$rs2),
-              "cv." # opcodestr # ".bf16", "$rd, $rs1, $rs2">, Sched<[]> {
+              "cv." # opcodestr # ".bf16", "$rd, $rs1, $rs2"> {
   let isCommutable = Commutable;
 }
 
 class CVBF_r<bits<7> funct7, bits<5> rs2val, bits<3> funct3,
              DAGOperand rdty, DAGOperand rs1ty, string opcodestr>
     : RVInstR<funct7, funct3, OPC_OP_FP, (outs rdty:$rd), (ins rs1ty:$rs1),
-              opcodestr, "$rd, $rs1">, Sched<[]> {
+              opcodestr, "$rd, $rs1"> {
   let rs2 = rs2val;
 }
 
@@ -68,7 +68,7 @@ class CVBF_fma<RISCVOpcode opcode, string opcodestr>
     : RVInstR4<0b10, XCVBFRound, opcode, (outs FPR16BFINX:$rd),
                (ins FPR16BFINX:$rs1, FPR16BFINX:$rs2, FPR16BFINX:$rs3),
                "cv." # opcodestr # ".bf16", "$rd, $rs1, $rs2, $rs3">,
-      Sched<[]>;
+      Sched<[WriteFMA16, ReadFMA16, ReadFMA16, ReadFMA16Addend]>;
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1
 
 //===----------------------------------------------------------------------===//
@@ -81,47 +81,67 @@ def CV_FMSUB_BF16  : CVBF_fma<OPC_MSUB,  "fmsub">;
 def CV_FNMSUB_BF16 : CVBF_fma<OPC_NMSUB, "fnmsub">;
 def CV_FNMADD_BF16 : CVBF_fma<OPC_NMADD, "fnmadd">;
 
-def CV_FADD_BF16 : CVBF_rr<0b0000010, XCVBFRound, "fadd", /*Commutable*/1>;
-def CV_FSUB_BF16 : CVBF_rr<0b0000110, XCVBFRound, "fsub">;
-def CV_FMUL_BF16 : CVBF_rr<0b0001010, XCVBFRound, "fmul", /*Commutable*/1>;
-def CV_FDIV_BF16 : CVBF_rr<0b0001110, XCVBFRound, "fdiv">;
+def CV_FADD_BF16 : CVBF_rr<0b0000010, XCVBFRound, "fadd", /*Commutable*/1>,
+                   Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+def CV_FSUB_BF16 : CVBF_rr<0b0000110, XCVBFRound, "fsub">,
+                   Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+def CV_FMUL_BF16 : CVBF_rr<0b0001010, XCVBFRound, "fmul", /*Commutable*/1>,
+                   Sched<[WriteFMul16, ReadFMul16, ReadFMul16]>;
+def CV_FDIV_BF16 : CVBF_rr<0b0001110, XCVBFRound, "fdiv">,
+                   Sched<[WriteFDiv16, ReadFDiv16, ReadFDiv16]>;
 def CV_FSQRT_BF16 : CVBF_r<0b0101110, 0b00000, XCVBFRound, FPR16BFINX,
-                           FPR16BFINX, "cv.fsqrt.bf16">;
+                           FPR16BFINX, "cv.fsqrt.bf16">,
+                    Sched<[WriteFSqrt16, ReadFSqrt16]>;
 
 let mayRaiseFPException = 0 in {
-def CV_FSGNJ_BF16  : CVBF_rr<0b0010010, 0b100, "fsgnj">;
-def CV_FSGNJN_BF16 : CVBF_rr<0b0010010, 0b101, "fsgnjn">;
-def CV_FSGNJX_BF16 : CVBF_rr<0b0010010, 0b110, "fsgnjx">;
+def CV_FSGNJ_BF16  : CVBF_rr<0b0010010, 0b100, "fsgnj">,
+                     Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+def CV_FSGNJN_BF16 : CVBF_rr<0b0010010, 0b101, "fsgnjn">,
+                     Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+def CV_FSGNJX_BF16 : CVBF_rr<0b0010010, 0b110, "fsgnjx">,
+                     Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
 }
-def CV_FMIN_BF16 : CVBF_rr<0b0010110, 0b100, "fmin", /*Commutable*/1>;
-def CV_FMAX_BF16 : CVBF_rr<0b0010110, 0b101, "fmax", /*Commutable*/1>;
+def CV_FMIN_BF16 : CVBF_rr<0b0010110, 0b100, "fmin", /*Commutable*/1>,
+                   Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
+def CV_FMAX_BF16 : CVBF_rr<0b0010110, 0b101, "fmax", /*Commutable*/1>,
+                   Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
 
 let IsSignExtendingOpW = 1 in {
-def CV_FEQ_BF16 : CVBF_rr<0b1010010, 0b110, "feq", /*Commutable*/1, GPR>;
-def CV_FLT_BF16 : CVBF_rr<0b1010010, 0b101, "flt", /*Commutable*/0, GPR>;
-def CV_FLE_BF16 : CVBF_rr<0b1010010, 0b100, "fle", /*Commutable*/0, GPR>;
+def CV_FEQ_BF16 : CVBF_rr<0b1010010, 0b110, "feq", /*Commutable*/1, GPR>,
+                  Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+def CV_FLT_BF16 : CVBF_rr<0b1010010, 0b101, "flt", /*Commutable*/0, GPR>,
+                  Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+def CV_FLE_BF16 : CVBF_rr<0b1010010, 0b100, "fle", /*Commutable*/0, GPR>,
+                  Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
 }
 
 let mayRaiseFPException = 0 in
 def CV_FCLASS_BF16 : CVBF_r<0b1110010, 0b00000, XCVBFRound, GPR, FPR16BFINX,
-                            "cv.fclass.bf16">;
+                            "cv.fclass.bf16">,
+                     Sched<[WriteFClass16, ReadFClass16]>;
 
 // bfloat16 <-> 32-bit integer, rounding as the arithmetic does.
 def CV_FCVT_W_BF16  : CVBF_r<0b1100010, 0b00000, XCVBFRound, GPR, FPR16BFINX,
-                             "cv.fcvt.w.bf16">;
+                             "cv.fcvt.w.bf16">,
+                      Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
 def CV_FCVT_WU_BF16 : CVBF_r<0b1100010, 0b00001, XCVBFRound, GPR, FPR16BFINX,
-                             "cv.fcvt.wu.bf16">;
+                             "cv.fcvt.wu.bf16">,
+                      Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
 def CV_FCVT_BF16_W  : CVBF_r<0b1101010, 0b00000, XCVBFRound, FPR16BFINX, GPR,
-                             "cv.fcvt.bf16.w">;
+                             "cv.fcvt.bf16.w">,
+                      Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
 def CV_FCVT_BF16_WU : CVBF_r<0b1101010, 0b00001, XCVBFRound, FPR16BFINX, GPR,
-                             "cv.fcvt.bf16.wu">;
+                             "cv.fcvt.bf16.wu">,
+                      Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
 
 // bfloat16 <-> float. cv.fcvt.s.bf16 is exact (funct3 000);
 // cv.fcvt.bf16.s rounds.
 def CV_FCVT_S_BF16 : CVBF_r<0b0100000, 0b00110, 0b000, FPR32INX, FPR16BFINX,
-                            "cv.fcvt.s.bf16">;
+                            "cv.fcvt.s.bf16">,
+                     Sched<[WriteFCvtF16ToF32, ReadFCvtF16ToF32]>;
 def CV_FCVT_BF16_S : CVBF_r<0b0100010, 0b00000, XCVBFRound, FPR16BFINX,
-                            FPR32INX, "cv.fcvt.bf16.s">;
+                            FPR32INX, "cv.fcvt.bf16.s">,
+                     Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16]>;
 } // Predicates = [HasVendorXCVbf], DecoderNamespace = "XCV"
 
 // bfloat16 <-> binary16. cv.fcvt.h.bf16 takes a rounding mode (dynamic by
@@ -131,11 +151,13 @@ let hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1,
     UseNamedOperandTable = 1, hasPostISelHook = 1 in
 def CV_FCVT_H_BF16 : RVInstRFrm<0b0100010, OPC_OP_FP, (outs FPR16INX:$rd),
                                 (ins FPR16BFINX:$rs1, frmarg:$frm),
-                                "cv.fcvt.h.bf16", "$rd, $rs1$frm">, Sched<[]> {
+                                "cv.fcvt.h.bf16", "$rd, $rs1$frm">,
+                     Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16]> {
   let rs2 = 0b00110;
 }
 def CV_FCVT_BF16_H : CVBF_r<0b0100010, 0b00010, XCVBFRound, FPR16BFINX,
-                            FPR16INX, "cv.fcvt.bf16.h">;
+                            FPR16INX, "cv.fcvt.bf16.h">,
+                     Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16]>;
 }
 
 // Assembler-only aliases.
@@ -161,12 +183,12 @@ let hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1,
     Uses = [FRM] in {
 class CVBFV_rr<bits<5> op, bit r, dag outs, dag ins, string opcodestr>
     : RVInstR<{0b10, op}, {r, XCVBFVFmt}, OPC_OP, outs, ins, opcodestr,
-              "$rd, $rs1, $rs2">, Sched<[]>;
+              "$rd, $rs1, $rs2">;
 
 class CVBFV_r<bits<5> op, bits<5> rs2val, bit r, string opcodestr,
               DAGOperand rdty = GPRV2BF16Op, DAGOperand rs1ty = GPRV2BF16Op>
     : RVInstR<{0b10, op}, {r, XCVBFVFmt}, OPC_OP, (outs rdty:$rd),
-              (ins rs1ty:$rs1), opcodestr, "$rd, $rs1">, Sched<[]> {
+              (ins rs1ty:$rs1), opcodestr, "$rd, $rs1"> {
   let rs2 = rs2val;
 }
 
@@ -174,7 +196,7 @@ let Constraints = "$rd = $rd_wb" in
 class CVBFV_rrr<bits<5> op, bit r, DAGOperand rs2ty, string opcodestr>
     : RVInstR<{0b10, op}, {r, XCVBFVFmt}, OPC_OP, (outs GPRV2BF16Op:$rd_wb),
               (ins GPRV2BF16Op:$rd, GPRV2BF16Op:$rs1, rs2ty:$rs2), opcodestr,
-              "$rd, $rs1, $rs2">, Sched<[]>;
+              "$rd, $rs1, $rs2">;
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0, mayRaiseFPException = 1,
   // Uses = [FRM]
 
@@ -198,48 +220,73 @@ multiclass CVBFV_rrr_m<bits<5> op, string mnemonic> {
 //===----------------------------------------------------------------------===//
 
 let Predicates = [HasVendorXCVbfv, IsRV32], DecoderNamespace = "XCV" in {
-defm CV_VFADD : CVBFV_rr_m<0b00001, "vfadd">;
-defm CV_VFSUB : CVBFV_rr_m<0b00010, "vfsub">;
-defm CV_VFMUL : CVBFV_rr_m<0b00011, "vfmul">;
-defm CV_VFDIV : CVBFV_rr_m<0b00100, "vfdiv">;
+defm CV_VFADD : CVBFV_rr_m<0b00001, "vfadd">,
+                Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+defm CV_VFSUB : CVBFV_rr_m<0b00010, "vfsub">,
+                Sched<[WriteFAdd16, ReadFAdd16, ReadFAdd16]>;
+defm CV_VFMUL : CVBFV_rr_m<0b00011, "vfmul">,
+                Sched<[WriteFMul16, ReadFMul16, ReadFMul16]>;
+defm CV_VFDIV : CVBFV_rr_m<0b00100, "vfdiv">,
+                Sched<[WriteFDiv16, ReadFDiv16, ReadFDiv16]>;
 let Uses = []<Register> in {
-defm CV_VFMIN : CVBFV_rr_m<0b00101, "vfmin">;
-defm CV_VFMAX : CVBFV_rr_m<0b00110, "vfmax">;
+defm CV_VFMIN : CVBFV_rr_m<0b00101, "vfmin">,
+                Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
+defm CV_VFMAX : CVBFV_rr_m<0b00110, "vfmax">,
+                Sched<[WriteFMinMax16, ReadFMinMax16, ReadFMinMax16]>;
 }
-def CV_VFSQRT_BF16 : CVBFV_r<0b00111, 0b00000, 0, "cv.vfsqrt.bf16">;
+def CV_VFSQRT_BF16 : CVBFV_r<0b00111, 0b00000, 0, "cv.vfsqrt.bf16">,
+                     Sched<[WriteFSqrt16, ReadFSqrt16]>;
 
 // vfmac: rd = rd + rs1 * rs2, lane-wise.
 // vfmre: rd = rs1 * rs2 - rd, lane-wise.
-defm CV_VFMAC : CVBFV_rrr_m<0b01000, "vfmac">;
-defm CV_VFMRE : CVBFV_rrr_m<0b01001, "vfmre">;
+defm CV_VFMAC : CVBFV_rrr_m<0b01000, "vfmac">,
+                Sched<[WriteFMA16, ReadFMA16Addend, ReadFMA16, ReadFMA16]>;
+defm CV_VFMRE : CVBFV_rrr_m<0b01001, "vfmre">,
+                Sched<[WriteFMA16, ReadFMA16Addend, ReadFMA16, ReadFMA16]>;
 
 let mayRaiseFPException = 0, Uses = []<Register> in {
-defm CV_VFSGNJ  : CVBFV_rr_m<0b01101, "vfsgnj">;
-defm CV_VFSGNJN : CVBFV_rr_m<0b01110, "vfsgnjn">;
-defm CV_VFSGNJX : CVBFV_rr_m<0b01111, "vfsgnjx">;
-def CV_VFCLASS_BF16 : CVBFV_r<0b01100, 0b00001, 0, "cv.vfclass.bf16">;
+defm CV_VFSGNJ  : CVBFV_rr_m<0b01101, "vfsgnj">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+defm CV_VFSGNJN : CVBFV_rr_m<0b01110, "vfsgnjn">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+defm CV_VFSGNJX : CVBFV_rr_m<0b01111, "vfsgnjx">,
+                  Sched<[WriteFSGNJ16, ReadFSGNJ16, ReadFSGNJ16]>;
+def CV_VFCLASS_BF16 : CVBFV_r<0b01100, 0b00001, 0, "cv.vfclass.bf16">,
+                      Sched<[WriteFClass16, ReadFClass16]>;
 }
 
 // Compares write 0 or 1 to each 16-bit lane of rd.
 let Uses = []<Register> in {
-defm CV_VFEQ : CVBFV_rr_m<0b10000, "vfeq">;
-defm CV_VFNE : CVBFV_rr_m<0b10001, "vfne">;
-defm CV_VFLT : CVBFV_rr_m<0b10010, "vflt">;
-defm CV_VFGE : CVBFV_rr_m<0b10011, "vfge">;
-defm CV_VFLE : CVBFV_rr_m<0b10100, "vfle">;
-defm CV_VFGT : CVBFV_rr_m<0b10101, "vfgt">;
+defm CV_VFEQ : CVBFV_rr_m<0b10000, "vfeq">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFNE : CVBFV_rr_m<0b10001, "vfne">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFLT : CVBFV_rr_m<0b10010, "vflt">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFGE : CVBFV_rr_m<0b10011, "vfge">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFLE : CVBFV_rr_m<0b10100, "vfle">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
+defm CV_VFGT : CVBFV_rr_m<0b10101, "vfgt">,
+               Sched<[WriteFCmp16, ReadFCmp16, ReadFCmp16]>;
 }
 
 // Lane-wise bfloat16 <-> 16-bit integer; the r bit selects unsigned.
-def CV_VFCVT_X_BF16  : CVBFV_r<0b01100, 0b00010, 0, "cv.vfcvt.x.bf16">;
-def CV_VFCVT_XU_BF16 : CVBFV_r<0b01100, 0b00010, 1, "cv.vfcvt.xu.bf16">;
-def CV_VFCVT_BF16_X  : CVBFV_r<0b01100, 0b00011, 0, "cv.vfcvt.bf16.x">;
-def CV_VFCVT_BF16_XU : CVBFV_r<0b01100, 0b00011, 1, "cv.vfcvt.bf16.xu">;
+def CV_VFCVT_X_BF16  : CVBFV_r<0b01100, 0b00010, 0, "cv.vfcvt.x.bf16">,
+                       Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
+def CV_VFCVT_XU_BF16 : CVBFV_r<0b01100, 0b00010, 1, "cv.vfcvt.xu.bf16">,
+                       Sched<[WriteFCvtF16ToI32, ReadFCvtF16ToI32]>;
+def CV_VFCVT_BF16_X  : CVBFV_r<0b01100, 0b00011, 0, "cv.vfcvt.bf16.x">,
+                       Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
+def CV_VFCVT_BF16_XU : CVBFV_r<0b01100, 0b00011, 1, "cv.vfcvt.bf16.xu">,
+                       Sched<[WriteFCvtI32ToF16, ReadFCvtI32ToF16]>;
 
 // Rounds two floats to bfloat16: rs1 to lane 0, rs2 to lane 1.
 def CV_VFCPKA_BF16_S : CVBFV_rr<0b11000, 0, (outs GPRV2BF16Op:$rd),
                                 (ins FPR32INX:$rs1, FPR32INX:$rs2),
-                                "cv.vfcpka.bf16.s">;
+                                "cv.vfcpka.bf16.s">,
+                       Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16,
+                           ReadFCvtF32ToF16]>;
 } // Predicates = [HasVendorXCVbfv, IsRV32], DecoderNamespace = "XCV"
 
 // Lane-wise binary16 <-> bfloat16. The format field names the destination
@@ -252,11 +299,12 @@ let Predicates = [HasVendorXCVbfv, HasVendorXCVhv, IsRV32],
 def CV_VFCVT_H_BF16
     : RVInstR<0b1001100, 0b010, OPC_OP, (outs GPRV2F16Op:$rd),
               (ins GPRV2BF16Op:$rs1), "cv.vfcvt.h.bf16", "$rd, $rs1">,
-      Sched<[]> {
+      Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16]> {
   let rs2 = 0b00101;
 }
 def CV_VFCVT_BF16_H : CVBFV_r<0b01100, 0b00110, 0, "cv.vfcvt.bf16.h",
-                              GPRV2BF16Op, GPRV2F16Op>;
+                              GPRV2BF16Op, GPRV2F16Op>,
+                      Sched<[WriteFCvtF32ToF16, ReadFCvtF32ToF16]>;
 }
 
 // Assembler-only aliases.
