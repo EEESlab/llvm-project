@@ -28,8 +28,11 @@
 //
 //     .p2align 2
 //     .option push
-//     .option norelax
 //     .option norvc
+//
+// Linker relaxation is left enabled inside the loop: if it shrinks the body,
+// the loop end offset is fixed up by the R_RISCV_CVPCREL_UI12/URS1 relocation
+// that the assembler emits on the setup instruction.
 //
 // The matching .option pop is emitted at the top of the exit block, which is
 // moved to directly follow the latch. If the exit block is already pinned in

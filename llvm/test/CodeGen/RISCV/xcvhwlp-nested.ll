@@ -13,7 +13,6 @@ define void @nest_two(ptr noalias %dst, ptr noalias %src) {
 ; CHECK-LABEL: nest_two:
 ; CHECK:         .option push
 ; CHECK-NEXT:    .option norvc
-; CHECK-NEXT:    .option norelax
 ; CHECK-NEXT:    cv.setup{{i?}} 1, {{.*}}[[OUTEREXIT:\.LBB[0-9_]+]]
 ; CHECK:         cv.setup{{i?}} 0, {{.*}}[[INNEREXIT:\.LBB[0-9_]+]]
 ; CHECK:       [[INNEREXIT]]:{{.*}}

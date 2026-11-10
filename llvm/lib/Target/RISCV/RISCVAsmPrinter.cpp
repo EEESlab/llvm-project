@@ -421,12 +421,12 @@ void RISCVAsmPrinter::emitCVHWLoopNoRVCBegin() {
   // under the ambient subtarget because it lies outside the region.
   OutStreamer->emitCodeAlignment(Align(4), &getSubtargetInfo());
 
-  // Emit .option push, .option norvc, and .option norelax
+  // Emit .option push and .option norvc. Relaxation stays enabled: the loop
+  // end offset is a relocation when the body contains relaxable code.
   RISCVTargetStreamer &RTS =
       static_cast<RISCVTargetStreamer &>(*OutStreamer->getTargetStreamer());
   RTS.emitDirectiveOptionPush();
   RTS.emitDirectiveOptionNoRVC();
-  //RTS.emitDirectiveOptionNoRelax();
 }
 
 void RISCVAsmPrinter::emitCVHWLoopNoRVCEnd() {
