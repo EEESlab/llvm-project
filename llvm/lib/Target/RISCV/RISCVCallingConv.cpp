@@ -769,7 +769,11 @@ static bool CC_RISCV_FastCC(unsigned ValNo, MVT ValVT, MVT LocVT,
     return false;
   }
 
-  if (LocVT.isVector()) {
+  // The packed vectors of XLen bits (P, XCVsimd) are passed as XLenVT
+  bool IsPackedVector = Subtarget.isPExtPackedType(LocVT) &&
+                  LocVT.getSizeInBits() == Subtarget.getXLen();
+
+  if (LocVT.isVector() && !IsPackedVector) {
     if (MCRegister Reg = allocateRVVReg(ValVT, ValNo, State, TLI)) {
       // Fixed-length vectors are located in the corresponding scalable-vector
       // container types.
@@ -792,7 +796,7 @@ static bool CC_RISCV_FastCC(unsigned ValNo, MVT ValVT, MVT LocVT,
     }
   }
 
-  if (LocVT == XLenVT) {
+  if (LocVT == XLenVT || IsPackedVector) {
     if (MCRegister Reg = State.AllocateReg(getFastCCArgGPRs(ABI))) {
       State.addLoc(CCValAssign::getReg(ValNo, ValVT, Reg, LocVT, LocInfo));
       return false;

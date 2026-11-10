@@ -3391,7 +3391,8 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       CurDAG->RemoveDeadNode(Node);
       return;
     }
-    if (Subtarget->hasStdExtP()) {
+    // P / XCVsimd: the 32-bit packed vectors are in the GPRs
+    if (Subtarget->hasStdExtP() || Subtarget->hasVendorXCVsimd()) {
       bool Is32BitCast =
           (VT == MVT::i32 && (SrcVT == MVT::v4i8 || SrcVT == MVT::v2i16)) ||
           (SrcVT == MVT::i32 && (VT == MVT::v4i8 || VT == MVT::v2i16));
