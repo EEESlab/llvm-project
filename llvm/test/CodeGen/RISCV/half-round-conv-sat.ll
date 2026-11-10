@@ -28,18 +28,8 @@ define signext i32 @test_floor_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_floor_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB0_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0, rdn
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1, rdn
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB0_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
-; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rdn
 ; CHECKIZHINX-NEXT:    seqz a1, a1
 ; CHECKIZHINX-NEXT:    addi a1, a1, -1
 ; CHECKIZHINX-NEXT:    and a0, a1, a0
@@ -203,18 +193,8 @@ define i64 @test_floor_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_floor_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB1_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rdn
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rdn
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB1_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rdn
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -378,43 +358,14 @@ define signext i32 @test_floor_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_floor_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB2_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0, rdn
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1, rdn
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB2_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_floor_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB2_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rdn
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rdn
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB2_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_floor_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0, rdn
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_floor_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -591,18 +542,8 @@ define i64 @test_floor_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_floor_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB3_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rdn
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rdn
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB3_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rdn
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -742,18 +683,8 @@ define signext i32 @test_ceil_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_ceil_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB4_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0, rup
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1, rup
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB4_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
-; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rup
 ; CHECKIZHINX-NEXT:    seqz a1, a1
 ; CHECKIZHINX-NEXT:    addi a1, a1, -1
 ; CHECKIZHINX-NEXT:    and a0, a1, a0
@@ -917,18 +848,8 @@ define i64 @test_ceil_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_ceil_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB5_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rup
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rup
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB5_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rup
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -1092,43 +1013,14 @@ define signext i32 @test_ceil_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_ceil_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB6_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0, rup
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1, rup
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB6_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_ceil_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB6_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rup
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rup
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB6_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_ceil_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0, rup
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_ceil_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -1305,18 +1197,8 @@ define i64 @test_ceil_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_ceil_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB7_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rup
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rup
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB7_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rup
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -1456,16 +1338,6 @@ define signext i32 @test_trunc_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_trunc_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB8_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0, rtz
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1, rtz
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB8_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
 ; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
 ; CHECKIZHINX-NEXT:    seqz a1, a1
@@ -1631,16 +1503,6 @@ define i64 @test_trunc_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_trunc_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB9_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rtz
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rtz
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB9_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
 ; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
 ; RV64IZHINX-NEXT:    seqz a1, a1
@@ -1806,43 +1668,14 @@ define signext i32 @test_trunc_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_trunc_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB10_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0, rtz
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1, rtz
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB10_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_trunc_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB10_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rtz
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rtz
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB10_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_trunc_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_trunc_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -2019,16 +1852,6 @@ define i64 @test_trunc_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_trunc_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB11_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rtz
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rtz
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB11_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
 ; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
 ; RV64IZHINX-NEXT:    seqz a1, a1
@@ -2170,18 +1993,8 @@ define signext i32 @test_round_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_round_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB12_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0, rmm
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1, rmm
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB12_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
-; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rmm
 ; CHECKIZHINX-NEXT:    seqz a1, a1
 ; CHECKIZHINX-NEXT:    addi a1, a1, -1
 ; CHECKIZHINX-NEXT:    and a0, a1, a0
@@ -2345,18 +2158,8 @@ define i64 @test_round_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_round_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB13_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rmm
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rmm
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB13_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rmm
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -2520,43 +2323,14 @@ define signext i32 @test_round_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_round_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB14_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0, rmm
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1, rmm
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB14_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_round_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB14_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rmm
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rmm
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB14_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_round_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0, rmm
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_round_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -2733,18 +2507,8 @@ define i64 @test_round_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_round_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB15_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rmm
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rmm
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB15_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rmm
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -2884,18 +2648,8 @@ define signext i32 @test_roundeven_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_roundeven_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB16_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0, rne
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1, rne
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB16_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
-; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rne
 ; CHECKIZHINX-NEXT:    seqz a1, a1
 ; CHECKIZHINX-NEXT:    addi a1, a1, -1
 ; CHECKIZHINX-NEXT:    and a0, a1, a0
@@ -3059,18 +2813,8 @@ define i64 @test_roundeven_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_roundeven_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB17_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rne
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rne
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB17_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rne
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -3234,43 +2978,14 @@ define signext i32 @test_roundeven_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_roundeven_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB18_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0, rne
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1, rne
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB18_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_roundeven_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB18_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rne
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rne
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB18_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_roundeven_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0, rne
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_roundeven_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -3447,18 +3162,8 @@ define i64 @test_roundeven_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_roundeven_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB19_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0, rne
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1, rne
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB19_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rne
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -3598,18 +3303,8 @@ define signext i32 @test_rint_si32(half %x) {
 ;
 ; CHECKIZHINX-LABEL: test_rint_si32:
 ; CHECKIZHINX:       # %bb.0:
-; CHECKIZHINX-NEXT:    fabs.h a1, a0
-; CHECKIZHINX-NEXT:    li a2, 25
-; CHECKIZHINX-NEXT:    slli a2, a2, 10
-; CHECKIZHINX-NEXT:    flt.h a1, a1, a2
-; CHECKIZHINX-NEXT:    beqz a1, .LBB20_2
-; CHECKIZHINX-NEXT:  # %bb.1:
-; CHECKIZHINX-NEXT:    fcvt.w.h a1, a0
-; CHECKIZHINX-NEXT:    fcvt.h.w a1, a1
-; CHECKIZHINX-NEXT:    fsgnj.h a0, a1, a0
-; CHECKIZHINX-NEXT:  .LBB20_2:
 ; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
-; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0, rtz
+; CHECKIZHINX-NEXT:    fcvt.w.h a0, a0
 ; CHECKIZHINX-NEXT:    seqz a1, a1
 ; CHECKIZHINX-NEXT:    addi a1, a1, -1
 ; CHECKIZHINX-NEXT:    and a0, a1, a0
@@ -3773,18 +3468,8 @@ define i64 @test_rint_si64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_rint_si64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB21_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB21_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.l.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.l.h a0, a0
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
@@ -3948,43 +3633,14 @@ define signext i32 @test_rint_ui32(half %x) {
 ; CHECKIZFH-NEXT:    and a0, a0, a1
 ; CHECKIZFH-NEXT:    ret
 ;
-; RV32IZHINX-LABEL: test_rint_ui32:
-; RV32IZHINX:       # %bb.0:
-; RV32IZHINX-NEXT:    fabs.h a1, a0
-; RV32IZHINX-NEXT:    li a2, 25
-; RV32IZHINX-NEXT:    slli a2, a2, 10
-; RV32IZHINX-NEXT:    flt.h a1, a1, a2
-; RV32IZHINX-NEXT:    beqz a1, .LBB22_2
-; RV32IZHINX-NEXT:  # %bb.1:
-; RV32IZHINX-NEXT:    fcvt.w.h a1, a0
-; RV32IZHINX-NEXT:    fcvt.h.w a1, a1
-; RV32IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV32IZHINX-NEXT:  .LBB22_2:
-; RV32IZHINX-NEXT:    feq.h a1, a0, a0
-; RV32IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV32IZHINX-NEXT:    seqz a1, a1
-; RV32IZHINX-NEXT:    addi a1, a1, -1
-; RV32IZHINX-NEXT:    and a0, a1, a0
-; RV32IZHINX-NEXT:    ret
-;
-; RV64IZHINX-LABEL: test_rint_ui32:
-; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB22_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB22_2:
-; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.wu.h a0, a0, rtz
-; RV64IZHINX-NEXT:    seqz a1, a1
-; RV64IZHINX-NEXT:    addiw a1, a1, -1
-; RV64IZHINX-NEXT:    and a0, a0, a1
-; RV64IZHINX-NEXT:    ret
+; CHECKIZHINX-LABEL: test_rint_ui32:
+; CHECKIZHINX:       # %bb.0:
+; CHECKIZHINX-NEXT:    feq.h a1, a0, a0
+; CHECKIZHINX-NEXT:    fcvt.wu.h a0, a0
+; CHECKIZHINX-NEXT:    seqz a1, a1
+; CHECKIZHINX-NEXT:    addi a1, a1, -1
+; CHECKIZHINX-NEXT:    and a0, a1, a0
+; CHECKIZHINX-NEXT:    ret
 ;
 ; RV32IZFHMIN-LABEL: test_rint_ui32:
 ; RV32IZFHMIN:       # %bb.0:
@@ -4161,18 +3817,8 @@ define i64 @test_rint_ui64(half %x) nounwind {
 ;
 ; RV64IZHINX-LABEL: test_rint_ui64:
 ; RV64IZHINX:       # %bb.0:
-; RV64IZHINX-NEXT:    fabs.h a1, a0
-; RV64IZHINX-NEXT:    li a2, 25
-; RV64IZHINX-NEXT:    slli a2, a2, 10
-; RV64IZHINX-NEXT:    flt.h a1, a1, a2
-; RV64IZHINX-NEXT:    beqz a1, .LBB23_2
-; RV64IZHINX-NEXT:  # %bb.1:
-; RV64IZHINX-NEXT:    fcvt.w.h a1, a0
-; RV64IZHINX-NEXT:    fcvt.h.w a1, a1
-; RV64IZHINX-NEXT:    fsgnj.h a0, a1, a0
-; RV64IZHINX-NEXT:  .LBB23_2:
 ; RV64IZHINX-NEXT:    feq.h a1, a0, a0
-; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0, rtz
+; RV64IZHINX-NEXT:    fcvt.lu.h a0, a0
 ; RV64IZHINX-NEXT:    seqz a1, a1
 ; RV64IZHINX-NEXT:    addi a1, a1, -1
 ; RV64IZHINX-NEXT:    and a0, a1, a0
