@@ -162,6 +162,28 @@ define i32 @test.ctlz.zero.defined(i32 %a) {
   ret i32 %1
 }
 
+; 31 - ctlz(x) (the DAG makes it ctlz(x) ^ 31) is the position of the most
+; significant bit: one cv.fl1, not cv.fl1 and two xori that cancel.
+define i32 @test.fl1(i32 %a) {
+; CHECK-LABEL: test.fl1:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    cv.fl1 a0, a0
+; CHECK-NEXT:    ret
+  %1 = call i32 @llvm.ctlz.i32(i32 %a, i1 1)
+  %2 = sub i32 31, %1
+  ret i32 %2
+}
+
+define i32 @test.fl1.xor(i32 %a) {
+; CHECK-LABEL: test.fl1.xor:
+; CHECK:       # %bb.0:
+; CHECK-NEXT:    cv.fl1 a0, a0
+; CHECK-NEXT:    ret
+  %1 = call i32 @llvm.ctlz.i32(i32 %a, i1 1)
+  %2 = xor i32 %1, 31
+  ret i32 %2
+}
+
 define i32 @test.cv.clb(i32 %a) {
 ; CHECK-LABEL: test.cv.clb:
 ; CHECK:       # %bb.0:
