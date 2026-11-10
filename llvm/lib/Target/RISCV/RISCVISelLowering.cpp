@@ -314,6 +314,15 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
   if (Subtarget.hasXCVbfvPackedType())
     addRegisterClass(MVT::v2bf16, &RISCV::GPRV2BF16RegClass);
 
+  // XCVsimd: the 32-bit packed vectors are in the GPRs
+  bool HasXCVsimdVecs = Subtarget.hasVendorXCVsimd() && !Subtarget.is64Bit() &&
+                        !Subtarget.hasStdExtP();
+  if (HasXCVsimdVecs) {
+    addRegisterClass(MVT::v2i16, &RISCV::GPRRegClass);
+    addRegisterClass(MVT::v4i8, &RISCV::GPRRegClass);
+  }
+
+
   // Compute derived properties from the register classes.
   computeRegisterProperties(STI.getRegisterInfo());
 
@@ -735,6 +744,36 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     // Compares (cv.vfeq/vflt/...) are not selected: their v2i16 result type
     // is only legal with P. SETCC is scalarized onto the scalar compares.
   }
+
+  if (HasXCVsimdVecs) {
+    static const MVT XCVVecVTs[] = {MVT::v2i16, MVT::v4i8};
+    // Everything is expanded but the XCVsimd operations
+    for (unsigned Op = 0; Op < ISD::BUILTIN_OP_END; ++Op)
+      setOperationAction(Op, XCVVecVTs, Expand);
+    for (MVT VT : XCVVecVTs) {
+      for (MVT OtherVT : MVT::integer_fixedlen_vector_valuetypes()) {
+        setTruncStoreAction(VT, OtherVT, Expand);
+        setLoadExtAction({ISD::EXTLOAD, ISD::SEXTLOAD, ISD::ZEXTLOAD}, VT,
+                         OtherVT, Expand);
+      }
+      // The 32-bit loads, stores and selects, so that the XCVmem
+      // post-increment loads and stores apply
+      for (unsigned Op : {ISD::LOAD, ISD::STORE, ISD::SELECT}) {
+        setOperationAction(Op, VT, Promote);
+        AddPromotedToType(Op, VT, MVT::i32);
+      }
+    }
+    // The patterns of RISCVInstrInfoXCV.td
+    setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR, ISD::XOR,
+                        ISD::SMIN, ISD::SMAX, ISD::UMIN, ISD::UMAX, ISD::ABS,
+                        ISD::SHL, ISD::SRL, ISD::SRA},
+                       XCVVecVTs, Legal);
+    // lowerXCVsimdVectorOp: the XCVsimd intrinsics. BITCAST: no-op, as for P.
+    setOperationAction({ISD::BITCAST, ISD::BUILD_VECTOR, ISD::VECTOR_SHUFFLE,
+                        ISD::INSERT_VECTOR_ELT, ISD::EXTRACT_VECTOR_ELT},
+                       XCVVecVTs, Custom);
+  }
+
 
   if (Subtarget.hasStdExtZfbfmin()) {
     setOperationAction(ISD::BITCAST, MVT::i16, Custom);
@@ -7993,8 +8032,155 @@ RISCVTargetLowering::lowerXAndesBfHCvtBFloat16Store(SDValue Op,
 static SDValue lowerCttzElts(SDValue Op, SelectionDAG &DAG,
                              const RISCVSubtarget &Subtarget);
 
+// XCVsimd: the element and shuffle operations of the packed vectors in a
+// GPR (v4i8, v2i16) on the XCVsimd intrinsics (on i32), whose patterns select
+// cv.insert, cv.extractu, cv.shuffle.sci and cv.shuffle2.
+static SDValue lowerXCVsimdVectorOp(SDValue Op, SelectionDAG &DAG,
+                                    const RISCVSubtarget &Subtarget) {
+  unsigned Opc = Op.getOpcode();
+  if (!Subtarget.hasVendorXCVsimd() || Subtarget.is64Bit() ||
+      Subtarget.hasStdExtP() ||
+      (Opc != ISD::BUILD_VECTOR && Opc != ISD::VECTOR_SHUFFLE &&
+       Opc != ISD::INSERT_VECTOR_ELT && Opc != ISD::EXTRACT_VECTOR_ELT))
+    return SDValue();
+  SDValue Vec = Opc == ISD::EXTRACT_VECTOR_ELT ? Op.getOperand(0) : Op;
+  MVT VT = Vec.getSimpleValueType();
+  if (VT != MVT::v4i8 && VT != MVT::v2i16)
+    return SDValue();
+
+  SDLoc DL(Op);
+  bool IsB = VT == MVT::v4i8;
+  unsigned NumElts = VT.getVectorNumElements(), EltBits = 32 / NumElts;
+  auto Word = [&](SDValue V) { return DAG.getBitcast(MVT::i32, V); };
+  auto Imm = [&](uint64_t V) { return DAG.getTargetConstant(V, DL, MVT::i32); };
+  auto Intr = [&](Intrinsic::ID IIDB, Intrinsic::ID IIDH,
+                  ArrayRef<SDValue> Ops) {
+    SmallVector<SDValue, 4> Args = {Imm(IsB ? IIDB : IIDH)};
+    Args.append(Ops.begin(), Ops.end());
+    return DAG.getNode(ISD::INTRINSIC_WO_CHAIN, DL, MVT::i32, Args);
+  };
+  // Bit offset of a variable lane index
+  auto LaneShift = [&](SDValue Idx) {
+    return DAG.getNode(ISD::SHL, DL, MVT::i32,
+                       DAG.getZExtOrTrunc(Idx, DL, MVT::i32),
+                       DAG.getConstant(Log2_32(EltBits), DL, MVT::i32));
+  };
+
+  switch (Opc) {
+  case ISD::EXTRACT_VECTOR_ELT: {
+    SDValue Res;
+    if (auto *C = dyn_cast<ConstantSDNode>(Op.getOperand(1)))
+      Res = Intr(Intrinsic::riscv_cv_simd_extractu_b,
+                 Intrinsic::riscv_cv_simd_extractu_h,
+                 {Word(Vec), Imm(C->getZExtValue())});
+    else // the upper bits of the result are undefined
+      Res = DAG.getNode(ISD::SRL, DL, MVT::i32, Word(Vec),
+                        LaneShift(Op.getOperand(1)));
+    return DAG.getAnyExtOrTrunc(Res, DL, Op.getValueType());
+  }
+  case ISD::INSERT_VECTOR_ELT: {
+    SDValue W = Word(Op.getOperand(0));
+    SDValue Val = DAG.getAnyExtOrTrunc(Op.getOperand(1), DL, MVT::i32);
+    if (auto *C = dyn_cast<ConstantSDNode>(Op.getOperand(2)))
+      return DAG.getBitcast(VT, Intr(Intrinsic::riscv_cv_simd_insert_b,
+                                     Intrinsic::riscv_cv_simd_insert_h,
+                                     {W, Val, Imm(C->getZExtValue())}));
+    SDValue Sh = LaneShift(Op.getOperand(2));
+    SDValue Mask = DAG.getNode(
+        ISD::SHL, DL, MVT::i32,
+        DAG.getConstant(maskTrailingOnes<uint32_t>(EltBits), DL, MVT::i32), Sh);
+    W = DAG.getNode(ISD::OR, DL, MVT::i32,
+                    DAG.getNode(ISD::AND, DL, MVT::i32, W, DAG.getNOT(DL, Mask, MVT::i32)),
+                    DAG.getNode(ISD::AND, DL, MVT::i32,
+                                DAG.getNode(ISD::SHL, DL, MVT::i32, Val, Sh), Mask));
+    return DAG.getBitcast(VT, W);
+  }
+  case ISD::BUILD_VECTOR: {
+    // The constant lanes in one word, then cv.insert of the others
+    uint32_t Const = 0;
+    SmallVector<std::pair<unsigned, SDValue>, 4> Vars;
+    for (unsigned I = 0; I < NumElts; ++I) {
+      SDValue E = Op.getOperand(I);
+      if (E.isUndef())
+        continue;
+      if (auto *C = dyn_cast<ConstantSDNode>(E))
+        Const |= (C->getZExtValue() & maskTrailingOnes<uint32_t>(EltBits))
+                 << (I * EltBits);
+      else
+        Vars.push_back({I, DAG.getAnyExtOrTrunc(E, DL, MVT::i32)});
+    }
+    // Splat of a variable: one insert, then the shuffle of lane 0
+    if (Vars.size() == NumElts &&
+        all_of(Vars, [&](auto &P) { return P.second == Vars[0].second; })) {
+      SDValue W = Intr(Intrinsic::riscv_cv_simd_insert_b,
+                       Intrinsic::riscv_cv_simd_insert_h,
+                       {DAG.getUNDEF(MVT::i32), Vars[0].second, Imm(0)});
+      return DAG.getBitcast(VT, Intr(Intrinsic::riscv_cv_simd_shuffle_sci_b,
+                                     Intrinsic::riscv_cv_simd_shuffle_sci_h,
+                                     {W, Imm(0)}));
+    }
+    // All lanes variable: the pack instructions (cv.packlo.b + cv.packhi.b
+    // for 4 bytes, cv.pack for 2 halfwords), no insert chain
+    if (Vars.size() == NumElts) {
+      SDValue E0 = Vars[0].second, E1 = Vars[1].second;
+      if (!IsB)
+        return DAG.getBitcast(
+            VT, Intr(Intrinsic::riscv_cv_simd_packlo_h,
+                     Intrinsic::riscv_cv_simd_packlo_h, {E1, E0}));
+      SDValue Lo = Intr(Intrinsic::riscv_cv_simd_packlo_b,
+                        Intrinsic::riscv_cv_simd_packlo_b,
+                        {DAG.getUNDEF(MVT::i32), E1, E0});
+      return DAG.getBitcast(VT, Intr(Intrinsic::riscv_cv_simd_packhi_b,
+                                     Intrinsic::riscv_cv_simd_packhi_b,
+                                     {Lo, Vars[3].second, Vars[2].second}));
+    }
+    // The constant lanes in one word (none: undefined, no zeroing), then
+    // cv.insert of the variable ones
+    bool HasConst = Vars.size() + count_if(Op->op_values(), [](SDValue V) {
+                      return V.isUndef();
+                    }) != NumElts;
+    SDValue W = HasConst ? DAG.getConstant(Const, DL, MVT::i32)
+                         : DAG.getUNDEF(MVT::i32);
+    for (auto &[I, E] : Vars)
+      W = Intr(Intrinsic::riscv_cv_simd_insert_b,
+               Intrinsic::riscv_cv_simd_insert_h, {W, E, Imm(I)});
+    return DAG.getBitcast(VT, W);
+  }
+  case ISD::VECTOR_SHUFFLE: {
+    ArrayRef<int> Mask = cast<ShuffleVectorSDNode>(Op)->getMask();
+    SDValue V1 = Op.getOperand(0), V2 = Op.getOperand(1);
+    bool UsesV1 = any_of(Mask, [&](int M) { return M >= 0 && M < (int)NumElts; });
+    bool UsesV2 = any_of(Mask, [&](int M) { return M >= (int)NumElts; });
+    if (!UsesV1 || !UsesV2) {
+      // One source: cv.shuffle.sci, lane I from the lane field I of the
+      // immediate (2 bits per byte, 1 bit per halfword)
+      unsigned Sel = 0;
+      for (unsigned I = 0; I < NumElts; ++I)
+        if (Mask[I] >= 0)
+          Sel |= (Mask[I] % NumElts) << (I * Log2_32(NumElts));
+      return DAG.getBitcast(VT, Intr(Intrinsic::riscv_cv_simd_shuffle_sci_b,
+                                     Intrinsic::riscv_cv_simd_shuffle_sci_h,
+                                     {Word(UsesV2 ? V2 : V1), Imm(Sel)}));
+    }
+    // Two sources: cv.shuffle2, the selector lane I is the index in V1:V2
+    // (the upper bit selects rs1 = V2, else rd = V1)
+    uint32_t Sel = 0;
+    for (unsigned I = 0; I < NumElts; ++I)
+      if (Mask[I] >= 0)
+        Sel |= uint32_t(Mask[I]) << (I * EltBits);
+    return DAG.getBitcast(VT, Intr(Intrinsic::riscv_cv_simd_shuffle2_b,
+                                   Intrinsic::riscv_cv_simd_shuffle2_h,
+                                   {Word(V2), DAG.getConstant(Sel, DL, MVT::i32),
+                                    Word(V1)}));
+  }
+  }
+  llvm_unreachable("Unexpected XCVsimd vector operation");
+}
+
 SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
                                             SelectionDAG &DAG) const {
+  if (SDValue V = lowerXCVsimdVectorOp(Op, DAG, Subtarget))
+    return V;
   // XCVbf on RV32: i64 -> bf16 through f32. Any other i64 -> FP conversion
   // keeps its default expansion (libcall).
   if (Subtarget.hasVendorXCVbf() && !Subtarget.is64Bit() &&
@@ -8094,7 +8280,7 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
       return DAG.getNode(RISCVISD::BuildPairF64, DL, MVT::f64, Lo, Hi);
     }
 
-    if (Subtarget.hasStdExtP()) {
+    if (Subtarget.hasStdExtP() || Subtarget.hasVendorXCVsimd()) {
       bool Is32BitCast =
           (VT == MVT::i32 && (Op0VT == MVT::v4i8 || Op0VT == MVT::v2i16)) ||
           (Op0VT == MVT::i32 && (VT == MVT::v4i8 || VT == MVT::v2i16));
@@ -26989,7 +27175,9 @@ bool RISCVTargetLowering::allowsMisalignedMemoryAccesses(
   // element-alignment rule of RVV below. Answering "element aligned is fine"
   // would let the DAG combiner merge two f16 accesses into a v2f16 one that
   // legalization splits back up.
+  // The P and XCVsimd packed vectors are in the GPRs: accessed as the scalars
   if (!VT.isVector() || Subtarget.hasStdExtP() ||
+      (Subtarget.hasVendorXCVsimd() && !Subtarget.hasVInstructions()) ||
       (VT.isSimple() && Subtarget.isXCVPackedFPType(VT.getSimpleVT()))) {
     if (Fast)
       *Fast = Subtarget.enableUnalignedScalarMem();

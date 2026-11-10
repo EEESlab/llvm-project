@@ -812,10 +812,11 @@ RISCVTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy,
 
   Kind = improveShuffleKindFromMask(Kind, Mask, SrcTy, Index, SubTp);
 
+  // (also the XCVsimd packed vectors, in the GPRs as the P ones)
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if (ST->hasStdExtP() && isa<FixedVectorType>(SrcTy))
+  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(SrcTy))
     return 1;
 
   // CORE-V Xcvhv: a lane swap/broadcast is one cv.shuffle.sci.h (XCVsimd)
@@ -1148,7 +1149,7 @@ InstructionCost RISCVTTIImpl::getScalarizationOverhead(
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if (ST->hasStdExtP() && isa<FixedVectorType>(Ty)) {
+  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(Ty)) {
     return 1; // Treat as single instruction cost for now
   }
 
@@ -1986,7 +1987,7 @@ InstructionCost RISCVTTIImpl::getCastInstrCost(unsigned Opcode, Type *Dst,
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if (ST->hasStdExtP() &&
+  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) &&
       (isa<FixedVectorType>(Dst) || isa<FixedVectorType>(Src))) {
     return 1; // Treat as single instruction cost for now
   }
@@ -2700,7 +2701,7 @@ InstructionCost RISCVTTIImpl::getVectorInstrCost(
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if (ST->hasStdExtP() && isa<FixedVectorType>(Val)) {
+  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(Val)) {
     return 1; // Treat as single instruction cost for now
   }
 

@@ -168,8 +168,10 @@ bool RISCVSubtarget::useConstantPoolForLargeInts() const {
 
 // Returns true if VT is a P extension packed SIMD type.
 bool RISCVSubtarget::isPExtPackedType(MVT VT) const {
+  // XCVsimd (RV32, no V): the 32-bit packed vectors are in the GPRs, as for P
   if (!HasStdExtP)
-    return false;
+    return hasVendorXCVsimd() && !is64Bit() && !hasVInstructions() &&
+           (VT == MVT::v4i8 || VT == MVT::v2i16);
 
   // RV32 supports 32-bit and 64-bit vectors. RV64 only support 64-bit vectors.
   if (!is64Bit() && (VT == MVT::v4i8 || VT == MVT::v2i16))

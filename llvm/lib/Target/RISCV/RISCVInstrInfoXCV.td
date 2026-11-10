@@ -1422,3 +1422,34 @@ let Predicates = [HasVendorXCValu, IsRV32], AddedComplexity = 2 in {
   def : Pat<(i32 (srl (i32 (sub_oneuse GPR:$rd, GPR:$rs1)), GPR:$rs2)),
             (CV_SUBUNR GPR:$rd, GPR:$rs1, GPR:$rs2)>;
 } // Predicates = [HasVendorXCValu, IsRV32]
+
+//===----------------------------------------------------------------------===//
+// XCVsimd patterns of the generic vector operations
+//===----------------------------------------------------------------------===//
+
+multiclass PatCoreVSimdVec<SDPatternOperator op, string inst> {
+  def : Pat<(v4i8 (op (v4i8 GPR:$rs1), (v4i8 GPR:$rs2))),
+            (!cast<RVInst>(inst # "_B") GPR:$rs1, GPR:$rs2)>;
+  def : Pat<(v2i16 (op (v2i16 GPR:$rs1), (v2i16 GPR:$rs2))),
+            (!cast<RVInst>(inst # "_H") GPR:$rs1, GPR:$rs2)>;
+}
+
+let Predicates = [HasVendorXCVsimd, IsRV32] in {
+  defm : PatCoreVSimdVec<add,  "CV_ADD">;
+  defm : PatCoreVSimdVec<sub,  "CV_SUB">;
+  defm : PatCoreVSimdVec<smin, "CV_MIN">;
+  defm : PatCoreVSimdVec<smax, "CV_MAX">;
+  defm : PatCoreVSimdVec<umin, "CV_MINU">;
+  defm : PatCoreVSimdVec<umax, "CV_MAXU">;
+  defm : PatCoreVSimdVec<shl,  "CV_SLL">;
+  defm : PatCoreVSimdVec<srl,  "CV_SRL">;
+  defm : PatCoreVSimdVec<sra,  "CV_SRA">;
+  def : Pat<(v4i8 (abs (v4i8 GPR:$rs1))), (CV_ABS_B GPR:$rs1)>;
+  def : Pat<(v2i16 (abs (v2i16 GPR:$rs1))), (CV_ABS_H GPR:$rs1)>;
+  // Bitwise: the base instructions
+  foreach VT = [v4i8, v2i16] in {
+    def : Pat<(VT (and (VT GPR:$rs1), (VT GPR:$rs2))), (AND GPR:$rs1, GPR:$rs2)>;
+    def : Pat<(VT (or  (VT GPR:$rs1), (VT GPR:$rs2))), (OR  GPR:$rs1, GPR:$rs2)>;
+    def : Pat<(VT (xor (VT GPR:$rs1), (VT GPR:$rs2))), (XOR GPR:$rs1, GPR:$rs2)>;
+  }
+}
