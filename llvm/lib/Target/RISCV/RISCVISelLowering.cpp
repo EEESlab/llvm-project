@@ -19614,8 +19614,8 @@ static SDValue performFP_TO_INTCombine(SDNode *N,
   if (!TLI.isTypeLegal(Src.getValueType()))
     return SDValue();
 
-  // Don't do this for f16 with Zfhmin and not Zfh.
-  if (Src.getValueType() == MVT::f16 && !Subtarget.hasStdExtZfh())
+  // Don't do this for f16 with Zfhmin and not Zfh (or Zhinxmin and not Zhinx).
+  if (Src.getValueType() == MVT::f16 && !Subtarget.hasStdExtZfhOrZhinx())
     return SDValue();
 
   RISCVFPRndMode::RoundingMode FRM = matchRoundingOp(Src.getOpcode());
@@ -19718,8 +19718,8 @@ static SDValue performFP_TO_INT_SATCombine(SDNode *N,
   if (!TLI.isTypeLegal(Src.getValueType()))
     return SDValue();
 
-  // Don't do this for f16 with Zfhmin and not Zfh.
-  if (Src.getValueType() == MVT::f16 && !Subtarget.hasStdExtZfh())
+  // Don't do this for f16 with Zfhmin and not Zfh (or Zhinxmin and not Zhinx).
+  if (Src.getValueType() == MVT::f16 && !Subtarget.hasStdExtZfhOrZhinx())
     return SDValue();
 
   EVT SatVT = cast<VTSDNode>(N->getOperand(1))->getVT();
