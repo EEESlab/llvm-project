@@ -3,9 +3,9 @@
 ; RUN: llc -mtriple=riscv32 -mattr=+m,+c,+xcvhwlp -verify-machineinstrs < %s \
 ; RUN:   | FileCheck %s
 ; RUN: llc -mtriple=riscv32 -mattr=+m,+c,+xcvhwlp -verify-machineinstrs \
-; RUN:   -riscv-hwloop-force-long-setup < %s | FileCheck %s --check-prefix=LONG
+; RUN:   -cvhwloop-force-long-setup < %s | FileCheck %s --check-prefix=LONG
 ; RUN: llc -mtriple=riscv32 -mattr=+m,+c,+xcvhwlp -verify-machineinstrs \
-; RUN:   -riscv-disable-hwloops < %s | FileCheck %s --check-prefix=OFF
+; RUN:   -hwloops-disable < %s | FileCheck %s --check-prefix=OFF
 
 ; A constant trip count that fits the 12-bit field of cv.setupi.
 ;
@@ -14,7 +14,6 @@ define void @leaf_imm(ptr noalias %dst, ptr noalias %src) {
 ; CHECK:         .p2align 2
 ; CHECK-NEXT:    .option push
 ; CHECK-NEXT:    .option norvc
-; CHECK-NEXT:    .option norelax
 ; CHECK-NEXT:    cv.setupi 0, 100, [[EXIT:\.LBB[0-9_]+]]
 ; CHECK:       [[EXIT]]:{{.*}}
 ; CHECK:         .option pop
@@ -23,7 +22,6 @@ define void @leaf_imm(ptr noalias %dst, ptr noalias %src) {
 ; LONG:         .p2align 2
 ; LONG-NEXT:    .option push
 ; LONG-NEXT:    .option norvc
-; LONG-NEXT:    .option norelax
 ; LONG-NEXT:    cv.starti 0, [[HDR:\.LBB[0-9_]+]]
 ; LONG-NEXT:    cv.endi 0, [[EXIT:\.LBB[0-9_]+]]
 ; LONG-NEXT:    cv.counti 0, 100
@@ -57,7 +55,6 @@ exit:
 define void @leaf_reg(ptr noalias %dst, ptr noalias %src, i32 %n) {
 ; CHECK-LABEL: leaf_reg:
 ; CHECK:         .option norvc
-; CHECK-NEXT:    .option norelax
 ; CHECK-NEXT:    cv.setup 0, {{[a-z0-9]+}}, {{\.LBB[0-9_]+}}
 entry:
   %guard = icmp sgt i32 %n, 0
