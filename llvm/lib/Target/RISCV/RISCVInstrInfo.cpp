@@ -2237,6 +2237,8 @@ static bool isFADD(unsigned Opc) {
   case RISCV::FADD_S_INX:
   case RISCV::FADD_D_INX:
   case RISCV::FADD_D_IN32X:
+  // CORE-V XCVbf: bfloat16 in a GPR.
+  case RISCV::CV_FADD_BF16:
     return true;
   }
 }
@@ -2253,6 +2255,8 @@ static bool isFSUB(unsigned Opc) {
   case RISCV::FSUB_S_INX:
   case RISCV::FSUB_D_INX:
   case RISCV::FSUB_D_IN32X:
+  // CORE-V XCVbf: bfloat16 in a GPR.
+  case RISCV::CV_FSUB_BF16:
     return true;
   }
 }
@@ -2269,6 +2273,8 @@ static bool isFMUL(unsigned Opc) {
   case RISCV::FMUL_S_INX:
   case RISCV::FMUL_D_INX:
   case RISCV::FMUL_D_IN32X:
+  // CORE-V XCVbf: bfloat16 in a GPR.
+  case RISCV::CV_FMUL_BF16:
     return true;
   }
 }
@@ -2572,6 +2578,9 @@ bool RISCVInstrInfo::isAssociativeAndCommutative(const MachineInstr &Inst,
   case RISCV::FMAX_S_INX:
   case RISCV::FMAX_D_INX:
   case RISCV::FMAX_D_IN32X:
+  // CORE-V XCVbf: bfloat16 in a GPR.
+  case RISCV::CV_FMIN_BF16:
+  case RISCV::CV_FMAX_BF16:
     return true;
   }
 
@@ -2643,6 +2652,10 @@ RISCVInstrInfo::getInverseOpcode(unsigned Opcode) const {
     return RISCV::FADD_D_INX;
   case RISCV::FSUB_D_IN32X:
     return RISCV::FADD_D_IN32X;
+  case RISCV::CV_FADD_BF16:
+    return RISCV::CV_FSUB_BF16;
+  case RISCV::CV_FSUB_BF16:
+    return RISCV::CV_FADD_BF16;
   case RISCV::ADD:
     return RISCV::SUB;
   case RISCV::SUB:
@@ -2687,6 +2700,14 @@ static bool canCombineFPFusedMultiply(const MachineInstr &Root,
   // Do not combine instructions from different basic blocks.
   if (Root.getParent() != MI->getParent())
     return false;
+  // The XCVbf instructions have no rounding mode operand (they round to
+  // nearest even).
+  bool RootHasFrm =
+      RISCV::getNamedOperandIdx(Root.getOpcode(), RISCV::OpName::frm) >= 0;
+  bool MIHasFrm =
+      RISCV::getNamedOperandIdx(MI->getOpcode(), RISCV::OpName::frm) >= 0;
+  if (!RootHasFrm && !MIHasFrm)
+    return true;
   return RISCV::hasEqualFRM(Root, *MI);
 }
 
@@ -2879,6 +2900,12 @@ static unsigned getFPFusedMultiplyOpcode(unsigned RootOpc, unsigned Pattern) {
     return Pattern == RISCVMachineCombinerPattern::FMSUB
                ? RISCV::FMSUB_D_IN32X
                : RISCV::FNMSUB_D_IN32X;
+  case RISCV::CV_FADD_BF16:
+    return RISCV::CV_FMADD_BF16;
+  case RISCV::CV_FSUB_BF16:
+    return Pattern == RISCVMachineCombinerPattern::FMSUB
+               ? RISCV::CV_FMSUB_BF16
+               : RISCV::CV_FNMSUB_BF16;
   }
 }
 
