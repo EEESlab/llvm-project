@@ -187,6 +187,7 @@ public:
   }
 
   bool isXCVPackedFPVectorTy(Type *Ty) const;
+  bool isXCVsimdFixedVectorTy(Type *Ty) const;
 
   InstructionCost
   getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy, VectorType *SrcTy,

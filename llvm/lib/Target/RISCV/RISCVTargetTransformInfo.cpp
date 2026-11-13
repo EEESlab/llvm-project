@@ -68,6 +68,13 @@ bool RISCVTTIImpl::isXCVPackedFPVectorTy(Type *Ty) const {
   return ST->isXCVPackedFPType(getTypeLegalizationCost(Ty).second);
 }
 
+/// True if \p Ty is a fixed vector handled in GPRs with XCVsimd: RV32 without
+/// P and V, where the 32-bit packed vectors (v4i8, v2i16) are legal.
+bool RISCVTTIImpl::isXCVsimdFixedVectorTy(Type *Ty) const {
+  return ST->hasVendorXCVsimd() && !ST->hasStdExtP() &&
+         !ST->hasVInstructions() && !ST->is64Bit() && isa<FixedVectorType>(Ty);
+}
+
 /// Return why the body of \p L cannot become a CORE-V hardware loop body, or
 /// null if nothing in it prevents that.
 const char *RISCVTTIImpl::getHardwareLoopBlocker(const Loop *L) const {
@@ -812,18 +819,51 @@ RISCVTTIImpl::getShuffleCost(TTI::ShuffleKind Kind, VectorType *DstTy,
 
   Kind = improveShuffleKindFromMask(Kind, Mask, SrcTy, Index, SubTp);
 
-  // (also the XCVsimd packed vectors, in the GPRs as the P ones)
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(SrcTy))
+  if (ST->hasStdExtP() && isa<FixedVectorType>(SrcTy))
     return 1;
 
-  // CORE-V Xcvhv: a lane swap/broadcast is one cv.shuffle.sci.h (XCVsimd)
-  // or a few shifts per v2f16 piece.
-  if (isXCVPackedFPVectorTy(SrcTy))
+  // CORE-V Xcvhv: each two-lane piece (one GPR) of the result is built on
+  // its own; the source elements are numbered across both sources, two per
+  // GPR. A piece that is a whole source GPR is free; one whose lanes come from
+  // a single source GPR is a cv.shuffle.sci.h (XCVsimd); one combining two
+  // source GPRs is a shift plus a cv.insert.h or cv.pack. Pieces whose lanes
+  // are all undefined cost nothing (e.g. the deinterleave shuffles of an
+  // interleaved load). Without XCVsimd, shift/and/or sequences.
+  if (isXCVPackedFPVectorTy(SrcTy)) {
+    unsigned OneSrcCost = ST->hasVendorXCVsimd() ? 1 : 3;
+    unsigned TwoSrcCost = ST->hasVendorXCVsimd() ? 2 : 4;
+    if (Mask.empty() || Mask.size() % 2 != 0 ||
+        cast<FixedVectorType>(SrcTy)->getNumElements() % 2 != 0) {
+      bool OneSrcPiece = Kind == TTI::SK_Broadcast || Kind == TTI::SK_Reverse ||
+                         (Kind == TTI::SK_PermuteSingleSrc &&
+                          getTypeLegalizationCost(SrcTy).first == 1);
+      return getTypeLegalizationCost(DstTy).first *
+             (OneSrcPiece ? OneSrcCost : TwoSrcCost);
+    }
+    InstructionCost Cost = 0;
+    for (unsigned P = 0, E = Mask.size(); P < E; P += 2) {
+      int Lo = Mask[P], Hi = Mask[P + 1];
+      if (Lo < 0 && Hi < 0)
+        continue;
+      if (Lo >= 0 && Hi >= 0 && Lo / 2 != Hi / 2)
+        Cost += TwoSrcCost;
+      else if ((Lo < 0 || Lo % 2 == 0) && (Hi < 0 || Hi % 2 == 1))
+        continue; // a whole source GPR, reused as is
+      else
+        Cost += OneSrcCost;
+    }
+    return Cost;
+  }
+
+  // XCVsimd: the vectors are in GPRs (no RVV). A one-source shuffle is one
+  // cv.shuffle.sci / cv.shufflei*.sci per GPR, a two-source one is a
+  // cv.shuffle2 with its selector materialized in a register.
+  if (isXCVsimdFixedVectorTy(SrcTy))
     return getTypeLegalizationCost(SrcTy).first *
-           (ST->hasVendorXCVsimd() ? 1 : 3);
+           (Kind == TTI::SK_PermuteTwoSrc || Kind == TTI::SK_Select ? 2 : 1);
 
   std::pair<InstructionCost, MVT> LT = getTypeLegalizationCost(SrcTy);
 
@@ -1149,13 +1189,14 @@ InstructionCost RISCVTTIImpl::getScalarizationOverhead(
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(Ty)) {
+  if (ST->hasStdExtP() && isa<FixedVectorType>(Ty)) {
     return 1; // Treat as single instruction cost for now
   }
 
-  // CORE-V Xcvhv: per-lane inserts/extracts (getVectorInstrCost), not the
-  // RVV slide sequences below.
-  if (isXCVPackedFPVectorTy(Ty))
+  // CORE-V Xcvhv, XCVsimd: per-lane inserts/extracts (getVectorInstrCost),
+  // not the RVV slide sequences below. Building or splitting a vector costs
+  // one cv.insert / cv.extract per lane, not one in total.
+  if (isXCVPackedFPVectorTy(Ty) || isXCVsimdFixedVectorTy(Ty))
     return BaseT::getScalarizationOverhead(Ty, DemandedElts, Insert, Extract,
                                            CostKind, ForPoisonSrc, VL, VIC);
 
@@ -1987,7 +2028,8 @@ InstructionCost RISCVTTIImpl::getCastInstrCost(unsigned Opcode, Type *Dst,
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) &&
+  if ((ST->hasStdExtP() || isXCVsimdFixedVectorTy(Dst) ||
+       isXCVsimdFixedVectorTy(Src)) &&
       (isa<FixedVectorType>(Dst) || isa<FixedVectorType>(Src))) {
     return 1; // Treat as single instruction cost for now
   }
@@ -2701,7 +2743,7 @@ InstructionCost RISCVTTIImpl::getVectorInstrCost(
   // TODO: Add proper cost model for P extension fixed vectors (e.g., v4i16)
   // For now, skip all fixed vector cost analysis when P extension is available
   // to avoid crashes in getMinRVVVectorSizeInBits()
-  if ((ST->hasStdExtP() || ST->hasVendorXCVsimd()) && isa<FixedVectorType>(Val)) {
+  if (ST->hasStdExtP() && isa<FixedVectorType>(Val)) {
     return 1; // Treat as single instruction cost for now
   }
 
@@ -2715,6 +2757,10 @@ InstructionCost RISCVTTIImpl::getVectorInstrCost(
       return KnownLane0 ? 0 : 1;
     return ST->hasVendorXCVsimd() ? 1 : (KnownLane0 ? 3 : 4);
   }
+
+  // XCVsimd: one cv.insert / cv.extract per lane (vectors in GPRs, no RVV).
+  if (isXCVsimdFixedVectorTy(Val))
+    return 1;
 
   if (Opcode != Instruction::ExtractElement &&
       Opcode != Instruction::InsertElement)
