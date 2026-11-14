@@ -935,6 +935,9 @@ set(riscv_SOURCES
 )
 set(riscv32_SOURCES
   riscv/mulsi3.S
+  riscv/udivdi3.c
+  riscv/udivmoddi4.c
+  riscv/umoddi3.c
   ${riscv_SOURCES}
 )
 set(riscv64_SOURCES
