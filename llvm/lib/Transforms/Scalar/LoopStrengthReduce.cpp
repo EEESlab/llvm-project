@@ -2267,6 +2267,8 @@ class LSRInstance {
 
   LSRUse *FindUseWithSimilarFormula(const Formula &F, const LSRUse &OrigLU);
 
+  bool hasDivisionBeforeLoopNest(const SCEV *Divisor) const;
+  bool isSafeToExpand(const SCEV *S) const;
   void InsertInitialFormula(const SCEV *S, LSRUse &LU, size_t LUIdx);
   void InsertSupplementalFormula(const SCEV *S, LSRUse &LU, size_t LUIdx);
   void CountRegisters(const Formula &F, size_t LUIdx);
@@ -3722,12 +3724,59 @@ void LSRInstance::CollectFixupsAndInitialFormulae() {
   LLVM_DEBUG(print_fixups(dbgs()));
 }
 
+/// Return true if a division or remainder by \p Divisor is executed before the
+/// loop nest around L is entered. Such an instruction is immediate UB for a
+/// zero or poison divisor, so \p Divisor is neither while the nest runs. Only
+/// a divisor that is an IR value is handled: its expansion is that same value.
+bool LSRInstance::hasDivisionBeforeLoopNest(const SCEV *Divisor) const {
+  const auto *U = dyn_cast<SCEVUnknown>(Divisor);
+  BasicBlock *OuterPreheader = L->getOutermostLoop()->getLoopPreheader();
+  if (!U || !OuterPreheader)
+    return false;
+  Value *V = U->getValue();
+  // Constants have uses all over the module.
+  if (!isa<Instruction>(V) && !isa<Argument>(V))
+    return false;
+  const Instruction *Guard = OuterPreheader->getTerminator();
+  return any_of(V->users(), [&](const User *Usr) {
+    const auto *I = dyn_cast<Instruction>(Usr);
+    return I && I->isIntDivRem() && I->getOperand(1) == V &&
+           I->getFunction() == Guard->getFunction() && DT.dominates(I, Guard);
+  });
+}
+
+/// Return true if \p S can be expanded wherever LSR inserts code for L.
+/// SCEVExpander::isSafeToExpand rejects a udiv whose divisor is not provably
+/// non-zero, since it has to hold at any point of the function. LSR only
+/// inserts code in L, in blocks dominated by its header, and in the preheaders
+/// of L and of the loops around it. So a udiv is also safe if the same divisor
+/// is already divided by before the loop nest is entered.
+bool LSRInstance::isSafeToExpand(const SCEV *S) const {
+  if (Rewriter.isSafeToExpand(S))
+    return true;
+  return !SCEVExprContains(S, [&](const SCEV *Op) {
+    if (const auto *D = dyn_cast<SCEVUDivExpr>(Op)) {
+      // The divisors SCEVExpander::isSafeToExpand accepts, or a division
+      // before the loop nest.
+      const SCEV *Divisor = D->getRHS();
+      return !(SE.isKnownNonZero(Divisor) &&
+               SE.isGuaranteedNotToBePoison(Divisor)) &&
+             !hasDivisionBeforeLoopNest(Divisor);
+    }
+    // The other reason for an expression to be unsafe: the expander needs a
+    // preheader to expand a recurrence.
+    if (const auto *AR = dyn_cast<SCEVAddRecExpr>(Op))
+      return !AR->getLoop()->getLoopPreheader();
+    return false;
+  });
+}
+
 /// Insert a formula for the given expression into the given use, separating out
 /// loop-variant portions from loop-invariant and loop-computable portions.
 void LSRInstance::InsertInitialFormula(const SCEV *S, LSRUse &LU,
                                        size_t LUIdx) {
   // Mark uses whose expressions cannot be expanded.
-  if (!Rewriter.isSafeToExpand(S))
+  if (!isSafeToExpand(S))
     LU.RigidFormula = true;
 
   Formula F;
