@@ -62,6 +62,7 @@
 #include "llvm/CodeGen/LivePhysRegs.h"
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineBlockFrequencyInfo.h"
+#include "llvm/CodeGen/MachineFrameInfo.h"
 #include "llvm/CodeGen/MachineFunction.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
@@ -69,6 +70,7 @@
 #include "llvm/CodeGen/PseudoSourceValue.h"
 #include "llvm/CodeGen/TargetRegisterInfo.h"
 #include "llvm/InitializePasses.h"
+#include "llvm/MC/MCDwarf.h"
 #include "llvm/Support/Alignment.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
@@ -232,6 +234,7 @@ private:
                            bool IsOuter);
 
   bool foldDuplicateCounter(MachineInstr &LoopEnd) const;
+  bool removeDeadCalleeSavedSpills(MachineFunction &MF) const;
 };
 
 } // end anonymous namespace
@@ -1503,6 +1506,97 @@ SmallVector<MachineLoop *, 4> RISCVHardwareLoops::sortByEntryFrequency(
   return Sorted;
 }
 
+/// This pass runs after register allocation and frame lowering. A software
+/// loop counter that was given a callee-saved register is deleted when its
+/// loop becomes a hardware loop, but the prologue and the epilogues still save
+/// and restore that register. Remove the spills of the callee-saved registers
+/// that no instruction uses any more. The stack slot is kept: the frame layout
+/// is final at this point.
+bool RISCVHardwareLoops::removeDeadCalleeSavedSpills(
+    MachineFunction &MF) const {
+  MachineFrameInfo &MFI = MF.getFrameInfo();
+  if (!MFI.isCalleeSavedInfoValid() || MFI.getCalleeSavedInfo().empty())
+    return false;
+
+  // Only registers saved and restored with plain stack accesses are handled,
+  // not the ones in the register list of a push/pop or of a save/restore
+  // libcall. The frame pointer and the return address are left alone.
+  auto IsSave = [&](const MachineInstr &MI, MCRegister Reg) {
+    return MI.getFlag(MachineInstr::FrameSetup) &&
+           MI.getOpcode() == RISCV::SW && MI.getOperand(0).getReg() == Reg &&
+           MI.getOperand(1).isReg() && MI.getOperand(2).isImm();
+  };
+  auto IsRestore = [&](const MachineInstr &MI, MCRegister Reg) {
+    return MI.getFlag(MachineInstr::FrameDestroy) &&
+           MI.getOpcode() == RISCV::LW && MI.getOperand(0).getReg() == Reg &&
+           MI.getOperand(1).isReg() && MI.getOperand(2).isImm();
+  };
+  auto IsCFIOf = [&](const MachineInstr &MI, MCRegister Reg) {
+    if (!MI.isCFIInstruction())
+      return false;
+    const MCCFIInstruction &CFI =
+        MF.getFrameInstructions()[MI.getOperand(0).getCFIIndex()];
+    switch (CFI.getOperation()) {
+    case MCCFIInstruction::OpOffset:
+    case MCCFIInstruction::OpRestore:
+    case MCCFIInstruction::OpSameValue:
+      return CFI.getRegister() ==
+             unsigned(TRI->getDwarfRegNum(Reg, /*isEH=*/true));
+    default:
+      return false;
+    }
+  };
+
+  std::vector<CalleeSavedInfo> Kept;
+  bool Changed = false;
+  for (const CalleeSavedInfo &CS : MFI.getCalleeSavedInfo()) {
+    MCRegister Reg = CS.getReg();
+    Kept.push_back(CS);
+    if (!RISCV::GPRRegClass.contains(Reg) || Reg == RISCV::X1 ||
+        Reg == RISCV::X8 || CS.isSpilledToReg())
+      continue;
+
+    SmallVector<MachineInstr *, 8> Dead;
+    bool HasSave = false, HasRestore = false, Used = false;
+    for (MachineBasicBlock &MBB : MF) {
+      for (MachineInstr &MI : MBB) {
+        if (IsCFIOf(MI, Reg)) {
+          Dead.push_back(&MI);
+        } else if (IsSave(MI, Reg)) {
+          HasSave = true;
+          Dead.push_back(&MI);
+        } else if (IsRestore(MI, Reg)) {
+          HasRestore = true;
+          Dead.push_back(&MI);
+        } else if (MI.readsRegister(Reg, TRI) ||
+                   MI.modifiesRegister(Reg, TRI) ||
+                   any_of(MI.operands(), [&](const MachineOperand &MO) {
+                     // E.g. a register saved by an interrupt handler
+                     // because a function it calls may clobber it.
+                     return MO.isRegMask() && MO.clobbersPhysReg(Reg);
+                   })) {
+          Used = true;
+          break;
+        }
+      }
+      if (Used)
+        break;
+    }
+    if (Used || !HasSave || !HasRestore)
+      continue;
+
+    for (MachineInstr *MI : Dead)
+      MI->eraseFromParent();
+    for (MachineBasicBlock &MBB : MF)
+      MBB.removeLiveIn(Reg);
+    Kept.pop_back();
+    Changed = true;
+  }
+  if (Changed)
+    MFI.setCalleeSavedInfo(std::move(Kept));
+  return Changed;
+}
+
 bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   const RISCVSubtarget &ST = MF.getSubtarget<RISCVSubtarget>();
   LLVM_DEBUG(dbgs() << "RISCVHardwareLoops pass: " << MF.getName() << "\n");
@@ -1538,8 +1632,10 @@ bool RISCVHardwareLoops::runOnMachineFunction(MachineFunction &MF) {
   for (MachineInstr *LoopEnd : LoopEnds)
     Changed |= foldDuplicateCounter(*LoopEnd);
 
-  if (Changed)
+  if (Changed) {
+    removeDeadCalleeSavedSpills(MF);
     MF.RenumberBlocks();
+  }
 
   return Changed;
 }
