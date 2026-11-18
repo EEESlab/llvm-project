@@ -2460,6 +2460,10 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
           Opcode, DL, XLenVT, XLenVT, Chain.getSimpleValueType(), Base,
           Offset, Chain);
 
+      // Without its memory operand, the load is assumed to alias every store
+      // and cannot be scheduled across any of them.
+      CurDAG->setNodeMemRefs(New, {Load->getMemOperand()});
+
       MVT VT = Load->getSimpleValueType(0);
       if (VT == MVT::f32 || VT == MVT::f16 || VT == MVT::bf16) {
         unsigned SubReg = VT == MVT::f32 ? RISCV::sub_32 : RISCV::sub_16;

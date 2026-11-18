@@ -30,11 +30,11 @@ define float @dot_column_unrolled(ptr %a, ptr %b, i32 %stride, i32 %n) {
 ; CHECK-NEXT:  .LBB0_1: # %loop
 ; CHECK-NEXT:    # =>This Inner Loop Header: Depth=1
 ; CHECK-NEXT:    lw a7, -4(a0)
-; CHECK-NEXT:    cv.lw t0, (a0), 8
-; CHECK-NEXT:    cv.lw t1, a2(a1)
-; CHECK-NEXT:    cv.lw t2, (a1), a6
-; CHECK-NEXT:    fmadd.s a4, a7, t2, a4
-; CHECK-NEXT:    fmadd.s a5, t0, t1, a5
+; CHECK-NEXT:    cv.lw t0, a2(a1)
+; CHECK-NEXT:    cv.lw t1, (a1), a6
+; CHECK-NEXT:    cv.lw t2, (a0), 8
+; CHECK-NEXT:    fmadd.s a4, a7, t1, a4
+; CHECK-NEXT:    fmadd.s a5, t2, t0, a5
 ; CHECK-NEXT:    bne a0, a3, .LBB0_1
 ; CHECK-NEXT:  # %bb.2: # %exit
 ; CHECK-NEXT:    fadd.s a0, a4, a5
