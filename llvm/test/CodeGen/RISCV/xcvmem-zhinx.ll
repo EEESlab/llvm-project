@@ -215,11 +215,11 @@ define void @vadd(ptr %a, ptr %b, ptr %d, i32 %n) {
 ; ZHINXMIN-NEXT:    add a3, a2, a3
 ; ZHINXMIN-NEXT:  .LBB7_2: # %loop
 ; ZHINXMIN-NEXT:    # =>This Inner Loop Header: Depth=1
-; ZHINXMIN-NEXT:    cv.lh a4, (a0), 2
-; ZHINXMIN-NEXT:    cv.lh a5, (a1), 2
-; ZHINXMIN-NEXT:    fcvt.s.h a5, a5
+; ZHINXMIN-NEXT:    cv.lh a4, (a1), 2
+; ZHINXMIN-NEXT:    cv.lh a5, (a0), 2
 ; ZHINXMIN-NEXT:    fcvt.s.h a4, a4
-; ZHINXMIN-NEXT:    fadd.s a4, a4, a5
+; ZHINXMIN-NEXT:    fcvt.s.h a5, a5
+; ZHINXMIN-NEXT:    fadd.s a4, a5, a4
 ; ZHINXMIN-NEXT:    fcvt.h.s a4, a4
 ; ZHINXMIN-NEXT:    cv.sh a4, (a2), 2
 ; ZHINXMIN-NEXT:    bne a2, a3, .LBB7_2

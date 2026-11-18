@@ -144,10 +144,10 @@ define void @row_scale_acc(ptr %a, ptr %b, ptr %d, i32 %rows, i32 %cols) {
 ; XCV-NEXT:  .LBB1_2: # %inner
 ; XCV-NEXT:    # Parent Loop BB1_1 Depth=1
 ; XCV-NEXT:    # => This Inner Loop Header: Depth=2
-; XCV-NEXT:    cv.lw t1, a7(a0)
-; XCV-NEXT:    cv.lw t2, (t0), 4
-; XCV-NEXT:    lw t3, 0(a6)
-; XCV-NEXT:    fmadd.s t1, t1, t2, t3
+; XCV-NEXT:    lw t1, 0(a6)
+; XCV-NEXT:    cv.lw t2, a7(a0)
+; XCV-NEXT:    cv.lw t3, (t0), 4
+; XCV-NEXT:    fmadd.s t1, t2, t3, t1
 ; XCV-NEXT:    cv.sw t1, (a6), 4
 ; XCV-NEXT:    bne a6, a2, .LBB1_2
 ; XCV-NEXT:  # %bb.3: # %outer.latch
