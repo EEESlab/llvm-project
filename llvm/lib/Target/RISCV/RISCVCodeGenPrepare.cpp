@@ -52,6 +52,11 @@ public:
   bool expandMulReduction(IntrinsicInst &I);
   bool widenVPMerge(Instruction *I);
   bool visitFreezeInst(FreezeInst &BO);
+  bool visitFSub(BinaryOperator &BO);
+
+private:
+  // Negations of values defined in other blocks, created by visitFSub.
+  DenseMap<Value *, Value *> NegatedOutside;
 };
 } // namespace
 
@@ -408,6 +413,71 @@ bool RISCVCodeGenPrepare::expandVPStrideLoad(IntrinsicInst &II) {
   II.replaceAllUsesWith(Res);
   II.eraseFromParent();
   return true;
+}
+
+// CORE-V packed FP (XCVhv, XCVbfv) has no fused form for Z - X * Y:
+// instruction selection turns it into cv.vfmac on (fma (fneg X), Y, Z) and
+// negates the first operand of the multiply, which is often a value loaded in
+// the loop. Selection works on one block, and machine LICM does not hoist out of
+// the inner loop in practice (not even with -hoist-cheap-insts), so that
+// negation stays in the loop:
+//   cv.lw / lw / xor (sign flip) / cv.vfmac.h / cv.sw
+// If one factor Y comes from another block (e.g. a factor computed before the
+// loop) and the other is computed in this one, rewrite Z - X * Y as
+// Z + X * (-Y), with -Y computed right after Y: the negation then runs where Y
+// is defined, and the fused form needs no negation. The two are equal in IEEE
+// arithmetic (negation is exact and Z - P is Z + (-P)).
+bool RISCVCodeGenPrepare::visitFSub(BinaryOperator &I) {
+  auto *VTy = dyn_cast<FixedVectorType>(I.getType());
+  if (!VTy || VTy->getNumElements() != 2)
+    return false;
+  Type *EltTy = VTy->getElementType();
+  if (!(EltTy->isHalfTy() && ST->hasXCVhvPackedType()) &&
+      !(EltTy->isBFloatTy() && ST->hasXCVbfvPackedType()))
+    return false;
+
+  // Only worth it when the multiply and the subtraction are fused.
+  auto *Mul = dyn_cast<BinaryOperator>(I.getOperand(1));
+  if (!Mul || Mul->getOpcode() != Instruction::FMul || !Mul->hasOneUse() ||
+      Mul->getParent() != I.getParent() || !I.hasAllowContract() ||
+      !Mul->hasAllowContract())
+    return false;
+
+  BasicBlock *BB = I.getParent();
+  for (unsigned Idx = 0; Idx < 2; ++Idx) {
+    Value *Y = Mul->getOperand(Idx);
+    Value *X = Mul->getOperand(1 - Idx);
+    auto *XI = dyn_cast<Instruction>(X);
+    auto *YI = dyn_cast<Instruction>(Y);
+    if (!XI || XI->getParent() != BB)
+      continue;
+    if (!isa<Argument>(Y) && (!YI || YI->getParent() == BB))
+      continue;
+
+    Value *&NegY = NegatedOutside[Y];
+    if (!NegY) {
+      IRBuilder<> Builder(F.getContext());
+      if (YI)
+        Builder.SetInsertPoint(YI->getParent(),
+                               isa<PHINode>(YI)
+                                   ? YI->getParent()->getFirstInsertionPt()
+                                   : std::next(YI->getIterator()));
+      else
+        Builder.SetInsertPoint(F.getEntryBlock().getFirstInsertionPt());
+      NegY = Builder.CreateFNegFMF(Y, Mul, Y->getName() + ".neg");
+    }
+
+    IRBuilder<> Builder(&I);
+    Value *NewMul = Builder.CreateFMulFMF(X, NegY, Mul);
+    Value *Add =
+        Builder.CreateFAddFMF(I.getOperand(0), NewMul, &I);
+    Add->takeName(&I);
+    I.replaceAllUsesWith(Add);
+    I.eraseFromParent();
+    Mul->eraseFromParent();
+    return true;
+  }
+  return false;
 }
 
 bool RISCVCodeGenPrepare::run() {
