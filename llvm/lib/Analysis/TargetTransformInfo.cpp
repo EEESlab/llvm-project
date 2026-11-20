@@ -470,6 +470,10 @@ bool TargetTransformInfo::shouldDropLSRSolutionIfLessProfitable() const {
   return TTIImpl->shouldDropLSRSolutionIfLessProfitable();
 }
 
+bool TargetTransformInfo::shouldFormLCSSAForLSRExitValues() const {
+  return TTIImpl->shouldFormLCSSAForLSRExitValues();
+}
+
 bool TargetTransformInfo::isProfitableLSRChainElement(Instruction *I) const {
   return TTIImpl->isProfitableLSRChainElement(I);
 }

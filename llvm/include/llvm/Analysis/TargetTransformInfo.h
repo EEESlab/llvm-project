@@ -867,6 +867,13 @@ public:
   /// less profitable than the baseline.
   LLVM_ABI bool shouldDropLSRSolutionIfLessProfitable() const;
 
+  /// Return true if LSR should put a loop back into LCSSA form, when it is not,
+  /// before replacing the exit values of its induction variables with values
+  /// computed after the loop. Without LCSSA form that replacement is skipped,
+  /// which can leave an induction variable counting in the loop only for its
+  /// value after the loop.
+  LLVM_ABI bool shouldFormLCSSAForLSRExitValues() const;
+
   /// \returns the instruction budget LoopTermFold may spend in the preheader
   /// to compute the new exit value (and the exit values of the IV it removes),
   /// or 0 to use the generic default based on SCEVCheapExpansionBudget.

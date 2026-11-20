@@ -541,6 +541,12 @@ public:
   bool isLSRCostLess(const TargetTransformInfo::LSRCost &C1,
                      const TargetTransformInfo::LSRCost &C2) const override;
 
+  // CORE-V hardware loops need no counter in the body: a counter LSR keeps
+  // only for its value after the loop costs an instruction per iteration.
+  bool shouldFormLCSSAForLSRExitValues() const override {
+    return ST->hasVendorXCVhwlp();
+  }
+
   // RISC-V branches compare two registers (beq/bne/blt/bge rs1, rs2), so a
   // loop exit test against a value other than zero needs no separate compare.
   // Telling LSR so makes it prefer a single index register shared by several
