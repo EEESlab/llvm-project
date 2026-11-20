@@ -7288,6 +7288,14 @@ static bool ReduceLoopStrength(Loop *L, IVUsers &IU, ScalarEvolution &SE,
   // When this is the case, if the exit value of the IV can be calculated using
   // SCEV, we can replace the exit block PHI with the final value of the IV and
   // skip the updates in each loop iteration.
+  //
+  // This needs LCSSA form, which the code generation pipeline does not keep:
+  // e.g. after the loop vectorizer, the LCSSA phi of a reduction may have been
+  // folded into a phi further down. If the target asks for it, restore it
+  // rather than leave the IV counting in the loop just for its exit value.
+  if (TTI.shouldFormLCSSAForLSRExitValues() && L->getExitBlock() &&
+      !L->isRecursivelyLCSSAForm(DT, LI))
+    Changed |= formLCSSARecursively(*L, DT, &LI, &SE);
   if (L->isRecursivelyLCSSAForm(DT, LI) && L->getExitBlock()) {
     SmallVector<WeakTrackingVH, 16> DeadInsts;
     SCEVExpander Rewriter(SE, "lsr", true);
