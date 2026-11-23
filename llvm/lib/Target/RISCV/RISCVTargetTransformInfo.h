@@ -26,7 +26,7 @@
 
 namespace llvm {
 
-extern cl::opt<bool> EnableXCVhvVectorize;
+extern cl::opt<bool> EnableXCVPackedFPVectorize;
 
 class RISCVTTIImpl final : public BasicTTIImplBase<RISCVTTIImpl> {
   using BaseT = BasicTTIImplBase<RISCVTTIImpl>;
@@ -181,7 +181,7 @@ public:
                           MemIntrinsicInfo &Info) const override;
 
   unsigned getMinVectorRegisterBitWidth() const override {
-    if (ST->hasXCVPackedFPType() && EnableXCVhvVectorize)
+    if (ST->hasXCVPackedFPType() && EnableXCVPackedFPVectorize)
       return 32;
     return ST->useRVVForFixedLengthVectors() ? 16 : 0;
   }
@@ -497,7 +497,7 @@ public:
       // only register that can be used to hold a mask.
       // FIXME: Should we conservatively return 31 as the number of usable
       // vector registers?
-      if (ST->hasXCVPackedFPType() && EnableXCVhvVectorize)
+      if (ST->hasXCVPackedFPType() && EnableXCVPackedFPVectorize)
         return 31; // CORE-V Xcvhv / XCVbfv vectors share the GPRs.
       return ST->hasVInstructions() ? 32 : 0;
     }

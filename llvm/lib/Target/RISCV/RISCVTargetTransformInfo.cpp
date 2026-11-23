@@ -53,11 +53,11 @@ static cl::opt<unsigned>
 static cl::opt<bool> EnableOrLikeSelectOpt("enable-riscv-or-like-select",
                                            cl::init(true), cl::Hidden);
 
-cl::opt<bool> llvm::EnableXCVhvVectorize(
-    "riscv-xcvhv-vectorize",
-    cl::desc("Let the loop and SLP vectorizers form <2 x half> and "
-             "<2 x bfloat> vectors for CORE-V Xcvhv and XCVbfv (32-bit "
-             "vectors held in a GPR)"),
+cl::opt<bool> llvm::EnableXCVPackedFPVectorize(
+    "riscv-xcv-packed-fp-vectorize",
+    cl::desc("Let the loop and SLP vectorizers form 32-bit vectors held in a "
+             "GPR on cores with CORE-V packed FP (XCVhv <2 x half>, XCVbfv "
+             "<2 x bfloat>)"),
     cl::init(false), cl::Hidden);
 
 /// True if \p Ty is a fixed vector that type legalization turns into v2f16
@@ -526,10 +526,10 @@ RISCVTTIImpl::getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const {
     return TypeSize::getFixed(ST->getXLen());
   case TargetTransformInfo::RGK_FixedWidthVector:
     // CORE-V Xcvhv / XCVbfv: a GPR holds a <2 x half> or <2 x bfloat>.
-    // Opt-in (see EnableXCVhvVectorize), as it makes 32-bit vectors of every
+    // Opt-in (see EnableXCVPackedFPVectorize), as it makes 32-bit vectors of every
     // element type candidates and only v2f16 / v2bf16 have packed
     // instructions.
-    if (ST->hasXCVPackedFPType() && EnableXCVhvVectorize)
+    if (ST->hasXCVPackedFPType() && EnableXCVPackedFPVectorize)
       return TypeSize::getFixed(32);
     return TypeSize::getFixed(
         ST->useRVVForFixedLengthVectors() ? LMUL * ST->getRealMinVLen() : 0);

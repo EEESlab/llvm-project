@@ -1,6 +1,6 @@
 ; RUN: opt < %s -passes=loop-vectorize -mtriple=riscv32 \
 ; RUN:   -mattr=+m,+zhinx,+xcvhv,+xcvbf,+xcvbfv,+xcvsimd,+xcvmem,+unaligned-scalar-mem \
-; RUN:   -riscv-xcvhv-vectorize -S | FileCheck %s
+; RUN:   -riscv-xcv-packed-fp-vectorize -S | FileCheck %s
 
 ; Packed vectors in GPRs (XCVhv, XCVbfv) with XCVsimd: filling a packed
 ; vector from loads with an unknown stride costs one load and one lane insert
