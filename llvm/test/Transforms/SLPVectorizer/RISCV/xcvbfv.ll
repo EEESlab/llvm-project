@@ -1,5 +1,5 @@
 ; RUN: opt -passes=slp-vectorizer -mtriple=riscv32 -mattr=+m,+xcvbfv,+xcvsimd \
-; RUN:   -riscv-xcvhv-vectorize -S < %s | FileCheck %s --check-prefix=VEC
+; RUN:   -riscv-xcv-packed-fp-vectorize -S < %s | FileCheck %s --check-prefix=VEC
 ; RUN: opt -passes=slp-vectorizer -mtriple=riscv32 -mattr=+m,+xcvbfv,+xcvsimd \
 ; RUN:   -S < %s | FileCheck %s --check-prefix=NOVEC
 
