@@ -431,3 +431,59 @@ define i64 @umin_i64_const(i64 %a) {
 }
 
 declare i64 @llvm.umin.i64(i64, i64)
+
+define i64 @smax_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: smax_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.max.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: smax_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB20_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    slt a4, a3, a1
+; RV32I-NEXT:    beqz a4, .LBB20_3
+; RV32I-NEXT:    j .LBB20_4
+; RV32I-NEXT:  .LBB20_2:
+; RV32I-NEXT:    sltu a4, a2, a0
+; RV32I-NEXT:    bnez a4, .LBB20_4
+; RV32I-NEXT:  .LBB20_3:
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    mv a1, a3
+; RV32I-NEXT:  .LBB20_4:
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.smax.i64(i64 %a, i64 %b)
+  ret i64 %r
+}
+
+define i64 @smax_i64_const(i64 %a) {
+; XCVEALU-LABEL: smax_i64_const:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a3, -1
+; XCVEALU-NEXT:    li a2, -100
+; XCVEALU-NEXT:    cv.max.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: smax_i64_const:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    li a2, -1
+; RV32I-NEXT:    beq a1, a2, .LBB21_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    srli a2, a1, 31
+; RV32I-NEXT:    bnez a2, .LBB21_3
+; RV32I-NEXT:    j .LBB21_4
+; RV32I-NEXT:  .LBB21_2:
+; RV32I-NEXT:    sltiu a2, a0, -99
+; RV32I-NEXT:    beqz a2, .LBB21_4
+; RV32I-NEXT:  .LBB21_3:
+; RV32I-NEXT:    li a0, -100
+; RV32I-NEXT:  .LBB21_4:
+; RV32I-NEXT:    neg a2, a2
+; RV32I-NEXT:    or a1, a2, a1
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.smax.i64(i64 %a, i64 -100)
+  ret i64 %r
+}
+
+declare i64 @llvm.smax.i64(i64, i64)

@@ -147,3 +147,23 @@ cv.minu.d t3, t3, t3
 # CHECK-INSTR: cv.minu.d t3, t3, t3
 # CHECK-ENCODING: [0x33,0x5e,0xce,0x25]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.max.d a0, a2, a4
+# CHECK-INSTR: cv.max.d a0, a2, a4
+# CHECK-ENCODING: [0x33,0x65,0xe6,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.max.d sp, tp, t1
+# CHECK-INSTR: cv.max.d sp, tp, t1
+# CHECK-ENCODING: [0x33,0x61,0x62,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.max.d t5, zero, s0
+# CHECK-INSTR: cv.max.d t5, zero, s0
+# CHECK-ENCODING: [0x33,0x6f,0x80,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.max.d t3, t3, t3
+# CHECK-INSTR: cv.max.d t3, t3, t3
+# CHECK-ENCODING: [0x33,0x6e,0xce,0x25]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
