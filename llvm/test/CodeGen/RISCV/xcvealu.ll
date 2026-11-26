@@ -186,3 +186,52 @@ define i64 @and_i64_const(i64 %a) {
   %r = and i64 %a, 4294967295
   ret i64 %r
 }
+
+define i64 @or_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: or_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.or.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    or a0, a0, a2
+; RV32I-NEXT:    or a1, a1, a3
+; RV32I-NEXT:    ret
+  %r = or i64 %a, %b
+  ret i64 %r
+}
+
+define i64 @or_i64_chain(i64 %a, i64 %b, i64 %c) {
+; XCVEALU-LABEL: or_i64_chain:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.or.d a0, a0, a2
+; XCVEALU-NEXT:    cv.or.d a0, a0, a4
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64_chain:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    or a1, a1, a3
+; RV32I-NEXT:    or a0, a0, a2
+; RV32I-NEXT:    or a0, a0, a4
+; RV32I-NEXT:    or a1, a1, a5
+; RV32I-NEXT:    ret
+  %s = or i64 %a, %b
+  %r = or i64 %s, %c
+  ret i64 %r
+}
+
+; A constant is kept on the split halves: no cv.or.d.
+define i64 @or_i64_const(i64 %a) {
+; XCVEALU-LABEL: or_i64_const:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a1, -1
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64_const:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    li a1, -1
+; RV32I-NEXT:    ret
+  %r = or i64 %a, 18446744069414584320
+  ret i64 %r
+}

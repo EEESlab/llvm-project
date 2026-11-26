@@ -30,6 +30,8 @@
 // operations P has no node for.
 def riscv_andd : RVSDNode<"ANDD", SDT_RISCVIntBinOpD,
                           [SDNPCommutative, SDNPAssociative]>;
+def riscv_ord  : RVSDNode<"ORD", SDT_RISCVIntBinOpD,
+                          [SDNPCommutative, SDNPAssociative]>;
 
 //===----------------------------------------------------------------------===//
 // Instruction class templates
@@ -57,14 +59,16 @@ let Predicates = [HasVendorXCVealu, IsRV32] in {
   def CV_SUB_D : CVInstEaluRR<0b0110000, 0b000, "cv.sub.d">, Sched<[]>;
   def CV_AND_D : CVInstEaluRR<0b0110000, 0b111, "cv.and.d", Commutable=1>,
                  Sched<[]>;
+  def CV_OR_D  : CVInstEaluRR<0b0110000, 0b110, "cv.or.d", Commutable=1>,
+                 Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32]
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add/sub/and is legalised to the two-result RISCVISD::ADDD/SUBD/ANDD
-// node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to
-// CV_ADD_D/CV_SUB_D/CV_AND_D in RISCVISelDAGToDAG.cpp, where the register pair
-// is built with REG_SEQUENCE: an i64 is not a legal type on RV32, so no
-// tablegen pattern can match it.
+// A 64-bit add/sub/and/or is legalised to the two-result RISCVISD::ADDD/SUBD/
+// ANDD/ORD node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to
+// CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D in RISCVISelDAGToDAG.cpp, where the
+// register pair is built with REG_SEQUENCE: an i64 is not a legal type on
+// RV32, so no tablegen pattern can match it.
