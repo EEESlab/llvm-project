@@ -390,9 +390,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD/SUB for RV32+XCVealu (cv.add.d/cv.sub.d on
-    // register pairs).
-    setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
+    // Custom legalize i64 ADD/SUB/AND for RV32+XCVealu (cv.add.d/cv.sub.d/
+    // cv.and.d on register pairs).
+    setOperationAction({ISD::ADD, ISD::SUB, ISD::AND}, MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15605,6 +15605,27 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
            "Unexpected custom legalisation");
     Results.push_back(customLegalizeToWOpWithSExt(N, DAG));
     break;
+  case ISD::AND: {
+    assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
+           Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
+
+    // With a constant operand the default expansion is better: each half
+    // folds with its half of the constant, nothing has to be materialised.
+    if (isa<ConstantSDNode>(N->getOperand(0)) ||
+        isa<ConstantSDNode>(N->getOperand(1)))
+      break;
+
+    // Expand to ANDD.
+    auto [LHSLo, LHSHi] =
+        DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
+    auto [RHSLo, RHSHi] =
+        DAG.SplitScalar(N->getOperand(1), DL, MVT::i32, MVT::i32);
+    SDValue Res = DAG.getNode(RISCVISD::ANDD, DL, DAG.getVTList(MVT::i32, MVT::i32),
+                              LHSLo, LHSHi, RHSLo, RHSHi);
+    Res = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1));
+    Results.push_back(Res);
+    return;
+  }
   case ISD::SHL:
   case ISD::SRA:
   case ISD::SRL: {

@@ -137,3 +137,52 @@ define i64 @add_sub_i64(i64 %a, i64 %b, i64 %c) {
   %r = sub i64 %s, %c
   ret i64 %r
 }
+
+define i64 @and_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: and_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.and.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    and a0, a0, a2
+; RV32I-NEXT:    and a1, a1, a3
+; RV32I-NEXT:    ret
+  %r = and i64 %a, %b
+  ret i64 %r
+}
+
+define i64 @and_i64_chain(i64 %a, i64 %b, i64 %c) {
+; XCVEALU-LABEL: and_i64_chain:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.and.d a0, a0, a2
+; XCVEALU-NEXT:    cv.and.d a0, a0, a4
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_chain:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    and a1, a1, a3
+; RV32I-NEXT:    and a0, a0, a2
+; RV32I-NEXT:    and a0, a0, a4
+; RV32I-NEXT:    and a1, a1, a5
+; RV32I-NEXT:    ret
+  %s = and i64 %a, %b
+  %r = and i64 %s, %c
+  ret i64 %r
+}
+
+; A constant mask is kept on the split halves: no cv.and.d.
+define i64 @and_i64_const(i64 %a) {
+; XCVEALU-LABEL: and_i64_const:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a1, 0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_const:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    li a1, 0
+; RV32I-NEXT:    ret
+  %r = and i64 %a, 4294967295
+  ret i64 %r
+}

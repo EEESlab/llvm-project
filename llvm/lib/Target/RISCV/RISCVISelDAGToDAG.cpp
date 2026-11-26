@@ -2533,6 +2533,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     // Fall through to regular ADDD selection.
     [[fallthrough]];
   case RISCVISD::SUBD:
+  case RISCVISD::ANDD:
   case RISCVISD::PPAIRE_DB:
   case RISCVISD::WADDAU:
   case RISCVISD::WSUBAU: {
@@ -2573,6 +2574,9 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         break;
       case RISCVISD::SUBD:
         Opc = Subtarget->hasStdExtP() ? RISCV::SUBD : RISCV::CV_SUB_D;
+        break;
+      case RISCVISD::ANDD:
+        Opc = RISCV::CV_AND_D;
         break;
       case RISCVISD::PPAIRE_DB:
         Opc = RISCV::PPAIRE_DB;
