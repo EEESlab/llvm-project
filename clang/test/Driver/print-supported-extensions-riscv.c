@@ -177,6 +177,7 @@
 // CHECK-NEXT:     xcvbfv               1.0       'XCVbfv' (CORE-V Packed BFloat16 Floating-Point)
 // CHECK-NEXT:     xcvbi                1.0       'XCVbi' (CORE-V Immediate Branching)
 // CHECK-NEXT:     xcvbitmanip          1.0       'XCVbitmanip' (CORE-V Bit Manipulation)
+// CHECK-NEXT:     xcvealu              1.0       'XCVealu' (CORE-V 64-bit ALU Operations)
 // CHECK-NEXT:     xcvelw               1.0       'XCVelw' (CORE-V Event Load Word)
 // CHECK-NEXT:     xcvhv                1.0       'XCVhv' (CORE-V Packed Half-Precision Floating-Point)
 // CHECK-NEXT:     xcvmac               1.0       'XCVmac' (CORE-V Multiply-Accumulate)

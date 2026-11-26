@@ -1611,6 +1611,13 @@ def HasVendorXCVbfv
       AssemblerPredicate<(all_of FeatureVendorXCVbfv),
                          "'XCVbfv' (CORE-V Packed BFloat16 Floating-Point)">;
 
+def FeatureVendorXCVealu
+    : RISCVExtension<1, 0, "CORE-V 64-bit ALU Operations">;
+def HasVendorXCVealu
+    : Predicate<"Subtarget->hasVendorXCVealu()">,
+      AssemblerPredicate<(all_of FeatureVendorXCVealu),
+                         "'XCVealu' (CORE-V 64-bit ALU Operations)">;
+
 // MIPS Extensions
 
 def FeatureVendorXMIPSCMov

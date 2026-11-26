@@ -482,6 +482,9 @@ The current vendor extensions supported are:
 ``XCVbfv``
   LLVM implements packed bfloat16 floating point for CORE-V: two bfloat16 lanes in one 32-bit integer register, on top of XCVbf. All instructions are prefixed with ``cv.``. These instructions are only available for riscv32 at this time.
 
+``XCVealu``
+  LLVM implements the CORE-V 64-bit integer ALU operations on register pairs (the GAP ``ealu64`` group): a 64-bit value lives in an even/odd pair of general purpose registers. The mnemonics are the GAP ones prefixed with ``cv.`` (``cv.add.d``). These instructions are only available for riscv32 at this time.
+
 ``XCVbi``
   LLVM implements `version 1.0.0 of the CORE-V immediate branching custom instructions specification <https://github.com/openhwgroup/cv32e40p/blob/cv32e40p_v1.3.2/docs/source/instruction_set_extensions.rst>`__ by OpenHW Group.  All instructions are prefixed with `cv.` as described in the specification. These instructions are only available for riscv32 at this time.
 

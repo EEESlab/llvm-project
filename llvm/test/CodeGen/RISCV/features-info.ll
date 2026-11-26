@@ -215,6 +215,7 @@
 ; CHECK-NEXT:   xcvbfv                           - 'XCVbfv' (CORE-V Packed BFloat16 Floating-Point).
 ; CHECK-NEXT:   xcvbi                            - 'XCVbi' (CORE-V Immediate Branching).
 ; CHECK-NEXT:   xcvbitmanip                      - 'XCVbitmanip' (CORE-V Bit Manipulation).
+; CHECK-NEXT:   xcvealu                          - 'XCVealu' (CORE-V 64-bit ALU Operations).
 ; CHECK-NEXT:   xcvelw                           - 'XCVelw' (CORE-V Event Load Word).
 ; CHECK-NEXT:   xcvhv                            - 'XCVhv' (CORE-V Packed Half-Precision Floating-Point).
 ; CHECK-NEXT:   xcvmac                           - 'XCVmac' (CORE-V Multiply-Accumulate).

@@ -1313,6 +1313,7 @@ R"(All available -march extensions for RISC-V
     xcvbfv               1.0
     xcvbi                1.0
     xcvbitmanip          1.0
+    xcvealu              1.0
     xcvelw               1.0
     xcvhv                1.0
     xcvmac               1.0
