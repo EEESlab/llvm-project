@@ -17,6 +17,11 @@
 // OP-IMM-32 space, which RV32 leaves free. The mnemonics are the GAP ones
 // with the cv. prefix (GAP add.d -> cv.add.d).
 //
+// Two encodings collide with standard extensions: cv.xor.d is Zba sh2add and
+// cv.sra.d is Zbb ror. The instructions decode in the XCV namespace, tried
+// before the standard tables, and XCVealu is declared incompatible with Zba
+// and Zbb in RISCVISAInfo.cpp.
+//
 // These instructions are only available for riscv32.
 //
 //===----------------------------------------------------------------------===//
@@ -53,7 +58,7 @@ class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
 // Instructions
 //===----------------------------------------------------------------------===//
 
-let Predicates = [HasVendorXCVealu, IsRV32] in {
+let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_ADD_D : CVInstEaluRR<0b0010000, 0b000, "cv.add.d", Commutable=1>,
                  Sched<[]>;
   def CV_SUB_D : CVInstEaluRR<0b0110000, 0b000, "cv.sub.d">, Sched<[]>;
@@ -61,7 +66,7 @@ let Predicates = [HasVendorXCVealu, IsRV32] in {
                  Sched<[]>;
   def CV_OR_D  : CVInstEaluRR<0b0110000, 0b110, "cv.or.d", Commutable=1>,
                  Sched<[]>;
-} // Predicates = [HasVendorXCVealu, IsRV32]
+} // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
 // Patterns
