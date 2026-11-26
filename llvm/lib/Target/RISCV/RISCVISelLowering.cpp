@@ -390,10 +390,10 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD/SUB/AND/OR for RV32+XCVealu (cv.add.d/cv.sub.d/
-    // cv.and.d/cv.or.d on register pairs).
-    setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR}, MVT::i64,
-                       Custom);
+    // Custom legalize i64 ADD/SUB/AND/OR/XOR for RV32+XCVealu (cv.add.d,
+    // cv.sub.d, cv.and.d, cv.or.d, cv.xor.d on register pairs).
+    setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR, ISD::XOR},
+                       MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15607,7 +15607,8 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     Results.push_back(customLegalizeToWOpWithSExt(N, DAG));
     break;
   case ISD::AND:
-  case ISD::OR: {
+  case ISD::OR:
+  case ISD::XOR: {
     assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
            Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
 
@@ -15617,12 +15618,25 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
         isa<ConstantSDNode>(N->getOperand(1)))
       break;
 
-    // Expand to ANDD/ORD.
+    // Expand to ANDD/ORD/XORD.
     auto [LHSLo, LHSHi] =
         DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
     auto [RHSLo, RHSHi] =
         DAG.SplitScalar(N->getOperand(1), DL, MVT::i32, MVT::i32);
-    unsigned Opc = N->getOpcode() == ISD::AND ? RISCVISD::ANDD : RISCVISD::ORD;
+    unsigned Opc;
+    switch (N->getOpcode()) {
+    default:
+      llvm_unreachable("Unexpected opcode");
+    case ISD::AND:
+      Opc = RISCVISD::ANDD;
+      break;
+    case ISD::OR:
+      Opc = RISCVISD::ORD;
+      break;
+    case ISD::XOR:
+      Opc = RISCVISD::XORD;
+      break;
+    }
     SDValue Res = DAG.getNode(Opc, DL, DAG.getVTList(MVT::i32, MVT::i32),
                               LHSLo, LHSHi, RHSLo, RHSHi);
     Res = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1));
