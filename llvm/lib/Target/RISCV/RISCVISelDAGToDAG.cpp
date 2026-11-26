@@ -2527,7 +2527,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
   case RISCVISD::ADDD:
     // Try to match WMACC pattern: ADDD where one operand pair comes from a
     // widening multiply.
-    if (tryWideningMulAcc(Node, DL))
+    if (Subtarget->hasStdExtP() && tryWideningMulAcc(Node, DL))
       return;
 
     // Fall through to regular ADDD selection.
@@ -2568,7 +2568,8 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       default:
         llvm_unreachable("Unexpected opcode");
       case RISCVISD::ADDD:
-        Opc = RISCV::ADDD;
+        // With both extensions the P instruction is used.
+        Opc = Subtarget->hasStdExtP() ? RISCV::ADDD : RISCV::CV_ADD_D;
         break;
       case RISCVISD::SUBD:
         Opc = RISCV::SUBD;

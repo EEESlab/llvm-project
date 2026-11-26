@@ -22,8 +22,35 @@
 //===----------------------------------------------------------------------===//
 
 //===----------------------------------------------------------------------===//
+// Instruction class templates
+//===----------------------------------------------------------------------===//
+
+let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in {
+// rd(pair) = rs1(pair) op rs2(pair): the R-type format of CVInstAluRR, with
+// every operand a register pair.
+class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
+                   bit Commutable = 0>
+    : RVInstR<funct7, funct3, OPC_OP, (outs GPRPairRV32:$rd),
+              (ins GPRPairRV32:$rs1, GPRPairRV32:$rs2), opcodestr,
+              "$rd, $rs1, $rs2"> {
+  let isCommutable = Commutable;
+}
+} // hasSideEffects = 0, mayLoad = 0, mayStore = 0
+
+//===----------------------------------------------------------------------===//
 // Instructions
 //===----------------------------------------------------------------------===//
 
 let Predicates = [HasVendorXCVealu, IsRV32] in {
+  def CV_ADD_D : CVInstEaluRR<0b0010000, 0b000, "cv.add.d", Commutable=1>,
+                 Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32]
+
+//===----------------------------------------------------------------------===//
+// Patterns
+//===----------------------------------------------------------------------===//
+
+// A 64-bit add is legalised to the two-result RISCVISD::ADDD node
+// (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to CV_ADD_D in
+// RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
+// an i64 is not a legal type on RV32, so no tablegen pattern can match it.

@@ -1,0 +1,29 @@
+# RUN: llvm-mc -triple=riscv32 --mattr=+xcvealu -M no-aliases -show-encoding %s \
+# RUN:        | FileCheck %s --check-prefixes=CHECK-ENCODING,CHECK-INSTR
+# RUN: llvm-mc -filetype=obj -triple=riscv32 -mattr=+xcvealu < %s \
+# RUN:     | llvm-objdump --mattr=+xcvealu -M no-aliases -d -r - \
+# RUN:     | FileCheck --check-prefix=CHECK-INSTR %s
+# RUN: not llvm-mc -triple riscv32 %s 2>&1 \
+# RUN:     | FileCheck -check-prefix=CHECK-NO-EXT %s
+
+# Each operand is an even/odd register pair, written as its even register.
+
+cv.add.d a0, a2, a4
+# CHECK-INSTR: cv.add.d a0, a2, a4
+# CHECK-ENCODING: [0x33,0x05,0xe6,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.add.d sp, tp, t1
+# CHECK-INSTR: cv.add.d sp, tp, t1
+# CHECK-ENCODING: [0x33,0x01,0x62,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.add.d t5, zero, s0
+# CHECK-INSTR: cv.add.d t5, zero, s0
+# CHECK-ENCODING: [0x33,0x0f,0x80,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.add.d t3, t3, t3
+# CHECK-INSTR: cv.add.d t3, t3, t3
+# CHECK-ENCODING: [0x33,0x0e,0xce,0x21]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
