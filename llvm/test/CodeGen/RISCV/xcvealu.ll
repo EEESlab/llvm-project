@@ -74,3 +74,66 @@ define i64 @add_i64_mem(ptr %p, ptr %q) {
   %r = add i64 %a, %b
   ret i64 %r
 }
+
+define i64 @sub_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: sub_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sub.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sub_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    sltu a4, a0, a2
+; RV32I-NEXT:    sub a1, a1, a3
+; RV32I-NEXT:    sub a1, a1, a4
+; RV32I-NEXT:    sub a0, a0, a2
+; RV32I-NEXT:    ret
+  %r = sub i64 %a, %b
+  ret i64 %r
+}
+
+define i64 @sub_i64_chain(i64 %a, i64 %b, i64 %c) {
+; XCVEALU-LABEL: sub_i64_chain:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sub.d a0, a0, a2
+; XCVEALU-NEXT:    cv.sub.d a0, a0, a4
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sub_i64_chain:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    sltu a6, a0, a2
+; RV32I-NEXT:    sub a1, a1, a3
+; RV32I-NEXT:    sub a1, a1, a6
+; RV32I-NEXT:    sub a0, a0, a2
+; RV32I-NEXT:    sub a1, a1, a5
+; RV32I-NEXT:    sltu a2, a0, a4
+; RV32I-NEXT:    sub a1, a1, a2
+; RV32I-NEXT:    sub a0, a0, a4
+; RV32I-NEXT:    ret
+  %s = sub i64 %a, %b
+  %r = sub i64 %s, %c
+  ret i64 %r
+}
+
+define i64 @add_sub_i64(i64 %a, i64 %b, i64 %c) {
+; XCVEALU-LABEL: add_sub_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.add.d a0, a0, a2
+; XCVEALU-NEXT:    cv.sub.d a0, a0, a4
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: add_sub_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    add a1, a1, a3
+; RV32I-NEXT:    add a2, a0, a2
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    sub a1, a1, a5
+; RV32I-NEXT:    add a0, a1, a0
+; RV32I-NEXT:    sltu a1, a2, a4
+; RV32I-NEXT:    sub a1, a0, a1
+; RV32I-NEXT:    sub a0, a2, a4
+; RV32I-NEXT:    ret
+  %s = add i64 %a, %b
+  %r = sub i64 %s, %c
+  ret i64 %r
+}

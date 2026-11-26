@@ -44,13 +44,14 @@ class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
 let Predicates = [HasVendorXCVealu, IsRV32] in {
   def CV_ADD_D : CVInstEaluRR<0b0010000, 0b000, "cv.add.d", Commutable=1>,
                  Sched<[]>;
+  def CV_SUB_D : CVInstEaluRR<0b0110000, 0b000, "cv.sub.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32]
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add is legalised to the two-result RISCVISD::ADDD node
-// (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to CV_ADD_D in
-// RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
+// A 64-bit add/sub is legalised to the two-result RISCVISD::ADDD/SUBD node
+// (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to CV_ADD_D/CV_SUB_D
+// in RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.

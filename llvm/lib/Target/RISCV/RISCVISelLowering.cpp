@@ -390,8 +390,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD for RV32+XCVealu (cv.add.d on register pairs).
-    setOperationAction(ISD::ADD, MVT::i64, Custom);
+    // Custom legalize i64 ADD/SUB for RV32+XCVealu (cv.add.d/cv.sub.d on
+    // register pairs).
+    setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15583,8 +15584,7 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
   case ISD::SUB:
     if (N->getValueType(0) == MVT::i64) {
       assert(!Subtarget.is64Bit() &&
-             (Subtarget.hasStdExtP() ||
-              (Subtarget.hasVendorXCVealu() && N->getOpcode() == ISD::ADD)) &&
+             (Subtarget.hasStdExtP() || Subtarget.hasVendorXCVealu()) &&
              "Unexpected custom legalisation");
 
       // Expand to ADDD/SUBD.
@@ -22077,8 +22077,13 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
     break;
   }
   case RISCVISD::SUBD: {
-    assert(!Subtarget.is64Bit() && Subtarget.hasStdExtP() &&
-           "SUBD is only for RV32 with P extension");
+    assert(!Subtarget.is64Bit() &&
+           (Subtarget.hasStdExtP() || Subtarget.hasVendorXCVealu()) &&
+           "SUBD is only for RV32 with the P or XCVealu extension");
+
+    // The widening accumulate form is a P extension instruction.
+    if (!Subtarget.hasStdExtP())
+      break;
 
     SDValue Op0Lo = N->getOperand(0);
     SDValue Op0Hi = N->getOperand(1);

@@ -2572,7 +2572,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         Opc = Subtarget->hasStdExtP() ? RISCV::ADDD : RISCV::CV_ADD_D;
         break;
       case RISCVISD::SUBD:
-        Opc = RISCV::SUBD;
+        Opc = Subtarget->hasStdExtP() ? RISCV::SUBD : RISCV::CV_SUB_D;
         break;
       case RISCVISD::PPAIRE_DB:
         Opc = RISCV::PPAIRE_DB;
