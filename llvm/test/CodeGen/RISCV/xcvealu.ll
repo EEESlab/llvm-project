@@ -286,3 +286,97 @@ define i64 @xor_i64_const(i64 %a) {
   %r = xor i64 %a, -1
   ret i64 %r
 }
+
+define i64 @smin_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: smin_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.min.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: smin_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB15_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    slt a4, a1, a3
+; RV32I-NEXT:    beqz a4, .LBB15_3
+; RV32I-NEXT:    j .LBB15_4
+; RV32I-NEXT:  .LBB15_2:
+; RV32I-NEXT:    sltu a4, a0, a2
+; RV32I-NEXT:    bnez a4, .LBB15_4
+; RV32I-NEXT:  .LBB15_3:
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    mv a1, a3
+; RV32I-NEXT:  .LBB15_4:
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.smin.i64(i64 %a, i64 %b)
+  ret i64 %r
+}
+
+; The compare-and-select form, as written in C before InstCombine.
+define i64 @smin_i64_select(i64 %a, i64 %b) {
+; XCVEALU-LABEL: smin_i64_select:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    beq a1, a3, .LBB16_2
+; XCVEALU-NEXT:  # %bb.1:
+; XCVEALU-NEXT:    slt a4, a1, a3
+; XCVEALU-NEXT:    beqz a4, .LBB16_3
+; XCVEALU-NEXT:    j .LBB16_4
+; XCVEALU-NEXT:  .LBB16_2:
+; XCVEALU-NEXT:    sltu a4, a0, a2
+; XCVEALU-NEXT:    bnez a4, .LBB16_4
+; XCVEALU-NEXT:  .LBB16_3:
+; XCVEALU-NEXT:    mv a0, a2
+; XCVEALU-NEXT:    mv a1, a3
+; XCVEALU-NEXT:  .LBB16_4:
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: smin_i64_select:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB16_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    slt a4, a1, a3
+; RV32I-NEXT:    beqz a4, .LBB16_3
+; RV32I-NEXT:    j .LBB16_4
+; RV32I-NEXT:  .LBB16_2:
+; RV32I-NEXT:    sltu a4, a0, a2
+; RV32I-NEXT:    bnez a4, .LBB16_4
+; RV32I-NEXT:  .LBB16_3:
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    mv a1, a3
+; RV32I-NEXT:  .LBB16_4:
+; RV32I-NEXT:    ret
+  %c = icmp slt i64 %a, %b
+  %r = select i1 %c, i64 %a, i64 %b
+  ret i64 %r
+}
+
+; A constant operand is materialised in a pair.
+define i64 @smin_i64_const(i64 %a) {
+; XCVEALU-LABEL: smin_i64_const:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a2, 100
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.min.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: smin_i64_const:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beqz a1, .LBB17_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    srli a2, a1, 31
+; RV32I-NEXT:    beqz a2, .LBB17_3
+; RV32I-NEXT:    j .LBB17_4
+; RV32I-NEXT:  .LBB17_2:
+; RV32I-NEXT:    sltiu a2, a0, 100
+; RV32I-NEXT:    bnez a2, .LBB17_4
+; RV32I-NEXT:  .LBB17_3:
+; RV32I-NEXT:    li a0, 100
+; RV32I-NEXT:  .LBB17_4:
+; RV32I-NEXT:    neg a2, a2
+; RV32I-NEXT:    and a1, a2, a1
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.smin.i64(i64 %a, i64 100)
+  ret i64 %r
+}
+
+declare i64 @llvm.smin.i64(i64, i64)

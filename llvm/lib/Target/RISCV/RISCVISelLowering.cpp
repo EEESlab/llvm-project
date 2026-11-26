@@ -390,10 +390,11 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD/SUB/AND/OR/XOR for RV32+XCVealu (cv.add.d,
-    // cv.sub.d, cv.and.d, cv.or.d, cv.xor.d on register pairs).
+    // Custom legalize i64 ADD/SUB/AND/OR/XOR/SMIN for RV32+XCVealu (cv.add.d,
+    // cv.sub.d, cv.and.d, cv.or.d, cv.xor.d, cv.min.d on register pairs).
     setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR, ISD::XOR},
                        MVT::i64, Custom);
+    setOperationAction(ISD::SMIN, MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15639,6 +15640,23 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     }
     SDValue Res = DAG.getNode(Opc, DL, DAG.getVTList(MVT::i32, MVT::i32),
                               LHSLo, LHSHi, RHSLo, RHSHi);
+    Res = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1));
+    Results.push_back(Res);
+    return;
+  }
+  case ISD::SMIN: {
+    assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
+           Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
+
+    // Expand to SMIND. A constant operand is materialised in a pair: still
+    // shorter than the default compare-and-select expansion.
+    auto [LHSLo, LHSHi] =
+        DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
+    auto [RHSLo, RHSHi] =
+        DAG.SplitScalar(N->getOperand(1), DL, MVT::i32, MVT::i32);
+    SDValue Res =
+        DAG.getNode(RISCVISD::SMIND, DL, DAG.getVTList(MVT::i32, MVT::i32),
+                    LHSLo, LHSHi, RHSLo, RHSHi);
     Res = DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1));
     Results.push_back(Res);
     return;

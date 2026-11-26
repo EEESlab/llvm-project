@@ -39,6 +39,8 @@ def riscv_ord  : RVSDNode<"ORD", SDT_RISCVIntBinOpD,
                           [SDNPCommutative, SDNPAssociative]>;
 def riscv_xord : RVSDNode<"XORD", SDT_RISCVIntBinOpD,
                           [SDNPCommutative, SDNPAssociative]>;
+def riscv_smind : RVSDNode<"SMIND", SDT_RISCVIntBinOpD,
+                           [SDNPCommutative, SDNPAssociative]>;
 
 //===----------------------------------------------------------------------===//
 // Instruction class templates
@@ -70,14 +72,17 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                  Sched<[]>;
   def CV_XOR_D : CVInstEaluRR<0b0010000, 0b100, "cv.xor.d", Commutable=1>,
                  Sched<[]>;
+  def CV_MIN_D : CVInstEaluRR<0b0010010, 0b100, "cv.min.d", Commutable=1>,
+                 Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add/sub/and/or/xor is legalised to the two-result RISCVISD::ADDD/
-// SUBD/ANDD/ORD/XORD node (RISCVISelLowering.cpp, ReplaceNodeResults) and
-// selected to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D in
-// RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
-// an i64 is not a legal type on RV32, so no tablegen pattern can match it.
+// A 64-bit add/sub/and/or/xor/smin is legalised to the two-result
+// RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND node (RISCVISelLowering.cpp,
+// ReplaceNodeResults) and selected to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/
+// CV_XOR_D/CV_MIN_D in RISCVISelDAGToDAG.cpp, where the register pair is
+// built with REG_SEQUENCE: an i64 is not a legal type on RV32, so no tablegen
+// pattern can match it.
