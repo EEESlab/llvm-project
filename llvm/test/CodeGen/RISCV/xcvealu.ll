@@ -785,3 +785,47 @@ define i64 @ashr_i64_const(i64 %a) {
   %r = ashr i64 %a, 3
   ret i64 %r
 }
+
+; Class A1: one pair in, one pair out.
+define i64 @abs_i64(i64 %a) {
+; XCVEALU-LABEL: abs_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.abs.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: abs_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    bgez a1, .LBB33_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    snez a2, a0
+; RV32I-NEXT:    neg a0, a0
+; RV32I-NEXT:    neg a1, a1
+; RV32I-NEXT:    sub a1, a1, a2
+; RV32I-NEXT:  .LBB33_2:
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.abs.i64(i64 %a, i1 false)
+  ret i64 %r
+}
+
+; C: a < 0 ? -a : a (the INT_MIN case is poison)
+define i64 @abs_i64_poison(i64 %a) {
+; XCVEALU-LABEL: abs_i64_poison:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.abs.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: abs_i64_poison:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    bgez a1, .LBB34_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    snez a2, a0
+; RV32I-NEXT:    neg a0, a0
+; RV32I-NEXT:    neg a1, a1
+; RV32I-NEXT:    sub a1, a1, a2
+; RV32I-NEXT:  .LBB34_2:
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.abs.i64(i64 %a, i1 true)
+  ret i64 %r
+}
+
+declare i64 @llvm.abs.i64(i64, i1)

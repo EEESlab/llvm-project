@@ -53,6 +53,10 @@ def riscv_slld : RVSDNode<"SLLD", SDT_RISCVIntBinOpD>;
 def riscv_srld : RVSDNode<"SRLD", SDT_RISCVIntBinOpD>;
 def riscv_srad : RVSDNode<"SRAD", SDT_RISCVIntBinOpD>;
 
+// (lo, hi) = op(lo1, hi1): one pair in, one pair out, the generic two-result
+// two-input integer profile (the one of the P extension WADDU/WMULSU nodes).
+def riscv_absd : RVSDNode<"ABSD", SDTIntBinHiLoOp>;
+
 //===----------------------------------------------------------------------===//
 // Instruction class templates
 //===----------------------------------------------------------------------===//
@@ -66,6 +70,13 @@ class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
               (ins GPRPairRV32:$rs1, GPRPairRV32:$rs2), opcodestr,
               "$rd, $rs1, $rs2"> {
   let isCommutable = Commutable;
+}
+
+// rd(pair) = op(rs1(pair)): the R-type format of CVInstAluR, rs2 unused.
+class CVInstEaluR<bits<7> funct7, bits<3> funct3, string opcodestr>
+    : RVInstR<funct7, funct3, OPC_OP, (outs GPRPairRV32:$rd),
+              (ins GPRPairRV32:$rs1), opcodestr, "$rd, $rs1"> {
+  let rs2 = 0b00000;
 }
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0
 
@@ -94,16 +105,18 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_SLL_D : CVInstEaluRR<0b0010000, 0b001, "cv.sll.d">, Sched<[]>;
   def CV_SRL_D : CVInstEaluRR<0b0010000, 0b101, "cv.srl.d">, Sched<[]>;
   def CV_SRA_D : CVInstEaluRR<0b0110000, 0b101, "cv.sra.d">, Sched<[]>;
+  def CV_ABS_D : CVInstEaluR<0b0010010, 0b000, "cv.abs.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra is legalised
-// to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/SMAXD/UMAXD/
-// SLLD/SRLD/SRAD node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected
-// to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
-// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D in RISCVISelDAGToDAG.cpp, where the
-// register pair is built with REG_SEQUENCE: an i64 is not a legal type on
-// RV32, so no tablegen pattern can match it.
+// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra/abs is
+// legalised to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/
+// SMAXD/UMAXD/SLLD/SRLD/SRAD/ABSD node (RISCVISelLowering.cpp,
+// ReplaceNodeResults) and selected to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/
+// CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/
+// CV_ABS_D in RISCVISelDAGToDAG.cpp, where the register pair is built with
+// REG_SEQUENCE: an i64 is not a legal type on RV32, so no tablegen pattern can
+// match it.

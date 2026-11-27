@@ -247,3 +247,23 @@ cv.sra.d t3, t3, t3
 # CHECK-INSTR: cv.sra.d t3, t3, t3
 # CHECK-ENCODING: [0x33,0x5e,0xce,0x61]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.abs.d a0, a2
+# CHECK-INSTR: cv.abs.d a0, a2
+# CHECK-ENCODING: [0x33,0x05,0x06,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.abs.d sp, tp
+# CHECK-INSTR: cv.abs.d sp, tp
+# CHECK-ENCODING: [0x33,0x01,0x02,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.abs.d t5, zero
+# CHECK-INSTR: cv.abs.d t5, zero
+# CHECK-ENCODING: [0x33,0x0f,0x00,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.abs.d t3, t3
+# CHECK-INSTR: cv.abs.d t3, t3
+# CHECK-ENCODING: [0x33,0x0e,0x0e,0x24]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}

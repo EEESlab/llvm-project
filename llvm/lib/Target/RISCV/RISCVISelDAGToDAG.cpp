@@ -2627,6 +2627,19 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     CurDAG->RemoveDeadNode(Node);
     return;
   }
+  case RISCVISD::ABSD: {
+    // One pair in, one pair out.
+    assert(!Subtarget->is64Bit() && "Unexpected opcode");
+    SDValue Op0 = buildGPRPair(CurDAG, DL, MVT::Untyped, Node->getOperand(0),
+                               Node->getOperand(1));
+    MachineSDNode *New =
+        CurDAG->getMachineNode(RISCV::CV_ABS_D, DL, MVT::Untyped, Op0);
+    auto [Lo, Hi] = extractGPRPair(CurDAG, DL, SDValue(New, 0));
+    ReplaceUses(SDValue(Node, 0), Lo);
+    ReplaceUses(SDValue(Node, 1), Hi);
+    CurDAG->RemoveDeadNode(Node);
+    return;
+  }
   case ISD::INTRINSIC_WO_CHAIN: {
     unsigned IntNo = Node->getConstantOperandVal(0);
     switch (IntNo) {
