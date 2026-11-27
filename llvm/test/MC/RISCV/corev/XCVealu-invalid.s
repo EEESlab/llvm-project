@@ -372,3 +372,24 @@ cv.extwz.d a0
 
 cv.extwz.d a0, a2, a4
 # CHECK-ERROR: :[[@LINE-1]]:20: error: invalid operand for instruction
+
+cv.slli.d a1, a2, 5
+# CHECK-ERROR: :[[@LINE-1]]:11: error: register must be even
+
+cv.slli.d a0, a3, 5
+# CHECK-ERROR: :[[@LINE-1]]:15: error: register must be even
+
+cv.slli.d a0, a2, 32
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [0, 31]
+
+cv.slli.d a0, a2, -1
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [0, 31]
+
+cv.slli.d a0, a2, a4
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [0, 31]
+
+cv.slli.d a0, a2
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.slli.d a0, a2, 5, 6
+# CHECK-ERROR: :[[@LINE-1]]:22: error: invalid operand for instruction

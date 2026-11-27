@@ -1,7 +1,7 @@
 # RUN: llvm-mc -triple=riscv32 --mattr=+xcvealu -M no-aliases -show-encoding %s \
 # RUN:        | FileCheck %s --check-prefixes=CHECK-ENCODING,CHECK-INSTR
 # RUN: llvm-mc -filetype=obj -triple=riscv32 -mattr=+xcvealu < %s \
-# RUN:     | llvm-objdump --mattr=+xcvealu -M no-aliases -d -r - \
+# RUN:     | llvm-objdump --mattr=+xcvealu --no-print-imm-hex -M no-aliases -d -r - \
 # RUN:     | FileCheck --check-prefix=CHECK-INSTR %s
 # RUN: not llvm-mc -triple riscv32 %s 2>&1 \
 # RUN:     | FileCheck -check-prefix=CHECK-NO-EXT %s
@@ -527,4 +527,24 @@ cv.extwz.d t5, zero
 cv.extwz.d t3, ra
 # CHECK-INSTR: cv.extwz.d t3, ra
 # CHECK-ENCODING: [0x33,0xde,0x00,0x64]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slli.d a0, a2, 5
+# CHECK-INSTR: cv.slli.d a0, a2, 5
+# CHECK-ENCODING: [0x13,0x15,0x56,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slli.d sp, tp, 5
+# CHECK-INSTR: cv.slli.d sp, tp, 5
+# CHECK-ENCODING: [0x13,0x11,0x52,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slli.d t5, zero, 0
+# CHECK-INSTR: cv.slli.d t5, zero, 0
+# CHECK-ENCODING: [0x13,0x1f,0x00,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slli.d t3, t3, 31
+# CHECK-INSTR: cv.slli.d t3, t3, 31
+# CHECK-ENCODING: [0x13,0x1e,0xfe,0x21]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}

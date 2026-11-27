@@ -2570,6 +2570,15 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       // the two 32-bit values.
       unsigned Opc = Opcode == RISCVISD::WADDAU ? RISCV::WADDAU : RISCV::WSUBAU;
       New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped, Op0, Op1Lo, Op1Hi);
+    } else if (Opcode == RISCVISD::SLLD && isa<ConstantSDNode>(Op1Lo) &&
+               isNullConstant(Op1Hi)) {
+      // A shift by a constant: the immediate form (cv.slli.d). The amount is
+      // below 32, the legaliser leaves larger ones to the default expansion.
+      uint64_t ShAmt = Op1Lo->getAsZExtVal();
+      assert(ShAmt < 32 && "Unexpected shift amount");
+      New = CurDAG->getMachineNode(
+          RISCV::CV_SLLI_D, DL, MVT::Untyped, Op0,
+          CurDAG->getTargetConstant(ShAmt, DL, MVT::i32));
     } else {
       SDValue Op1 = buildGPRPair(CurDAG, DL, MVT::Untyped, Op1Lo, Op1Hi);
 

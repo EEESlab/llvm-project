@@ -15774,7 +15774,12 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
       assert(!Subtarget.is64Bit() && "Unexpected custom legalisation");
 
       // Expand to SLLD/SRLD/SRAD. The shift amount is a register pair as
-      // well: the amount in the even register, zero in the odd one.
+      // well: the amount in the even register, zero in the odd one. A
+      // constant amount of 32 or more keeps the default expansion: a word
+      // move and one 32-bit shift, less than the pair and the instruction.
+      if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1)))
+        if (C->getZExtValue() >= 32)
+          break;
       auto [LHSLo, LHSHi] =
           DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
       SDValue ShAmt = DAG.getZExtOrTrunc(N->getOperand(1), DL, MVT::i32);

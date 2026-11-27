@@ -108,6 +108,18 @@ class CVInstEaluR<bits<7> funct7, bits<3> funct3, string opcodestr,
               opcodestr, "$rd, $rs1"> {
   let rs2 = 0b00000;
 }
+
+// rd = rs1(pair) op imm5: the format of the RV64 W shifts (RVInstIShiftW, a
+// funct7 over a 5-bit immediate in the rs2 field), with the source a register
+// pair. The shifts are in the OP-IMM space with an unsigned immediate; the
+// other forms in OP-IMM-32 (free on RV32) with a signed one. rd is a pair, or
+// a GPR for the comparisons.
+class CVInstEaluRI<bits<7> funct7, bits<3> funct3, string opcodestr,
+                   RISCVOpcode opcode = OPC_OP_IMM, DAGOperand ImmTy = uimm5,
+                   DAGOperand Rd = GPRPairRV32>
+    : RVInstIShiftW<funct7, funct3, opcode, (outs Rd:$rd),
+                    (ins GPRPairRV32:$rs1, ImmTy:$shamt), opcodestr,
+                    "$rd, $rs1, $shamt">;
 } // hasSideEffects = 0, mayLoad = 0, mayStore = 0
 
 //===----------------------------------------------------------------------===//
@@ -158,6 +170,7 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                    Sched<[]>;
   def CV_EXTWZ_D : CVInstEaluR<0b0110010, 0b101, "cv.extwz.d", Rs1=GPR>,
                    Sched<[]>;
+  def CV_SLLI_D : CVInstEaluRI<0b0010000, 0b001, "cv.slli.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -179,6 +192,8 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // CV_SLET_D/CV_SLETU_D in
 // RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
+// A shift by a constant below 32 is selected to CV_SLLI_D from the same
+// SLLD node (the constant is the low word of the amount pair).
 // CV_EXTWS_D and CV_EXTWZ_D have no selection: the default expansion of a
 // 64-bit extension of a word is already one instruction (the high word is a
 // srai, or zero).

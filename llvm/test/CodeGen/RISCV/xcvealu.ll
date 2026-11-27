@@ -606,9 +606,7 @@ define i64 @shl_i64_i32(i64 %a, i32 %n) {
 define i64 @shl_i64_const(i64 %a) {
 ; XCVEALU-LABEL: shl_i64_const:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    li a2, 3
-; XCVEALU-NEXT:    li a3, 0
-; XCVEALU-NEXT:    cv.sll.d a0, a0, a2
+; XCVEALU-NEXT:    cv.slli.d a0, a0, 3
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: shl_i64_const:
@@ -619,6 +617,25 @@ define i64 @shl_i64_const(i64 %a) {
 ; RV32I-NEXT:    slli a0, a0, 3
 ; RV32I-NEXT:    ret
   %r = shl i64 %a, 3
+  ret i64 %r
+}
+
+; A constant of 32 or more: the default expansion, no pair.
+define i64 @shl_i64_const_40(i64 %a) {
+; XCVEALU-LABEL: shl_i64_const_40:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    mv a1, a0
+; XCVEALU-NEXT:    li a0, 0
+; XCVEALU-NEXT:    slli a1, a1, 8
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: shl_i64_const_40:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    mv a1, a0
+; RV32I-NEXT:    li a0, 0
+; RV32I-NEXT:    slli a1, a1, 8
+; RV32I-NEXT:    ret
+  %r = shl i64 %a, 40
   ret i64 %r
 }
 
@@ -633,17 +650,17 @@ define i64 @lshr_i64(i64 %a, i64 %n) {
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi a4, a2, -32
 ; RV32I-NEXT:    srl a3, a1, a2
-; RV32I-NEXT:    bltz a4, .LBB27_2
+; RV32I-NEXT:    bltz a4, .LBB28_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    mv a0, a3
-; RV32I-NEXT:    j .LBB27_3
-; RV32I-NEXT:  .LBB27_2:
+; RV32I-NEXT:    j .LBB28_3
+; RV32I-NEXT:  .LBB28_2:
 ; RV32I-NEXT:    not a5, a2
 ; RV32I-NEXT:    slli a1, a1, 1
 ; RV32I-NEXT:    srl a0, a0, a2
 ; RV32I-NEXT:    sll a1, a1, a5
 ; RV32I-NEXT:    or a0, a0, a1
-; RV32I-NEXT:  .LBB27_3:
+; RV32I-NEXT:  .LBB28_3:
 ; RV32I-NEXT:    srai a1, a4, 31
 ; RV32I-NEXT:    and a1, a1, a3
 ; RV32I-NEXT:    ret
@@ -663,17 +680,17 @@ define i64 @lshr_i64_i32(i64 %a, i32 %n) {
 ; RV32I:       # %bb.0:
 ; RV32I-NEXT:    addi a4, a2, -32
 ; RV32I-NEXT:    srl a3, a1, a2
-; RV32I-NEXT:    bltz a4, .LBB28_2
+; RV32I-NEXT:    bltz a4, .LBB29_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    mv a0, a3
-; RV32I-NEXT:    j .LBB28_3
-; RV32I-NEXT:  .LBB28_2:
+; RV32I-NEXT:    j .LBB29_3
+; RV32I-NEXT:  .LBB29_2:
 ; RV32I-NEXT:    not a5, a2
 ; RV32I-NEXT:    slli a1, a1, 1
 ; RV32I-NEXT:    srl a0, a0, a2
 ; RV32I-NEXT:    sll a1, a1, a5
 ; RV32I-NEXT:    or a0, a0, a1
-; RV32I-NEXT:  .LBB28_3:
+; RV32I-NEXT:  .LBB29_3:
 ; RV32I-NEXT:    srai a1, a4, 31
 ; RV32I-NEXT:    and a1, a1, a3
 ; RV32I-NEXT:    ret
@@ -713,13 +730,13 @@ define i64 @ashr_i64(i64 %a, i64 %n) {
 ; RV32I-NEXT:    mv a3, a1
 ; RV32I-NEXT:    addi a4, a2, -32
 ; RV32I-NEXT:    sra a1, a1, a2
-; RV32I-NEXT:    bltz a4, .LBB30_2
+; RV32I-NEXT:    bltz a4, .LBB31_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    srai a3, a3, 31
 ; RV32I-NEXT:    mv a0, a1
 ; RV32I-NEXT:    mv a1, a3
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB30_2:
+; RV32I-NEXT:  .LBB31_2:
 ; RV32I-NEXT:    not a4, a2
 ; RV32I-NEXT:    slli a3, a3, 1
 ; RV32I-NEXT:    srl a0, a0, a2
@@ -743,13 +760,13 @@ define i64 @ashr_i64_i32(i64 %a, i32 %n) {
 ; RV32I-NEXT:    mv a3, a1
 ; RV32I-NEXT:    addi a4, a2, -32
 ; RV32I-NEXT:    sra a1, a1, a2
-; RV32I-NEXT:    bltz a4, .LBB31_2
+; RV32I-NEXT:    bltz a4, .LBB32_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    srai a3, a3, 31
 ; RV32I-NEXT:    mv a0, a1
 ; RV32I-NEXT:    mv a1, a3
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB31_2:
+; RV32I-NEXT:  .LBB32_2:
 ; RV32I-NEXT:    not a4, a2
 ; RV32I-NEXT:    slli a3, a3, 1
 ; RV32I-NEXT:    srl a0, a0, a2
@@ -789,13 +806,13 @@ define i64 @abs_i64(i64 %a) {
 ;
 ; RV32I-LABEL: abs_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    bgez a1, .LBB33_2
+; RV32I-NEXT:    bgez a1, .LBB34_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    snez a2, a0
 ; RV32I-NEXT:    neg a0, a0
 ; RV32I-NEXT:    neg a1, a1
 ; RV32I-NEXT:    sub a1, a1, a2
-; RV32I-NEXT:  .LBB33_2:
+; RV32I-NEXT:  .LBB34_2:
 ; RV32I-NEXT:    ret
   %r = call i64 @llvm.abs.i64(i64 %a, i1 false)
   ret i64 %r
@@ -810,13 +827,13 @@ define i64 @abs_i64_poison(i64 %a) {
 ;
 ; RV32I-LABEL: abs_i64_poison:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    bgez a1, .LBB34_2
+; RV32I-NEXT:    bgez a1, .LBB35_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    snez a2, a0
 ; RV32I-NEXT:    neg a0, a0
 ; RV32I-NEXT:    neg a1, a1
 ; RV32I-NEXT:    sub a1, a1, a2
-; RV32I-NEXT:  .LBB34_2:
+; RV32I-NEXT:  .LBB35_2:
 ; RV32I-NEXT:    ret
   %r = call i64 @llvm.abs.i64(i64 %a, i1 true)
   ret i64 %r
@@ -833,11 +850,11 @@ define i32 @slt_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: slt_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB35_2
+; RV32I-NEXT:    beq a1, a3, .LBB36_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a1, a3
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB35_2:
+; RV32I-NEXT:  .LBB36_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
 ; RV32I-NEXT:    ret
   %c = icmp slt i64 %a, %b
@@ -854,11 +871,11 @@ define i32 @sgt_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: sgt_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB36_2
+; RV32I-NEXT:    beq a1, a3, .LBB37_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a3, a1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB36_2:
+; RV32I-NEXT:  .LBB37_2:
 ; RV32I-NEXT:    sltu a0, a2, a0
 ; RV32I-NEXT:    ret
   %c = icmp sgt i64 %a, %b
@@ -870,27 +887,27 @@ define i32 @slt_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: slt_i64_br:
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.slet.d a0, a2, a0
-; XCVEALU-NEXT:    bnez a0, .LBB37_2
+; XCVEALU-NEXT:    bnez a0, .LBB38_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
 ; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB37_2: # %f
+; XCVEALU-NEXT:  .LBB38_2: # %f
 ; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: slt_i64_br:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB37_2
+; RV32I-NEXT:    beq a1, a3, .LBB38_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a1, a3
-; RV32I-NEXT:    bnez a0, .LBB37_3
-; RV32I-NEXT:    j .LBB37_4
-; RV32I-NEXT:  .LBB37_2:
+; RV32I-NEXT:    bnez a0, .LBB38_3
+; RV32I-NEXT:    j .LBB38_4
+; RV32I-NEXT:  .LBB38_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
-; RV32I-NEXT:    beqz a0, .LBB37_4
-; RV32I-NEXT:  .LBB37_3: # %t
+; RV32I-NEXT:    beqz a0, .LBB38_4
+; RV32I-NEXT:  .LBB38_3: # %t
 ; RV32I-NEXT:    li a0, 1
-; RV32I-NEXT:  .LBB37_4: # %f
+; RV32I-NEXT:  .LBB38_4: # %f
 ; RV32I-NEXT:    ret
   %c = icmp slt i64 %a, %b
   br i1 %c, label %t, label %f
@@ -905,28 +922,28 @@ define i64 @slt_i64_select(i64 %a, i64 %b, i64 %x, i64 %y) {
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.slt.d a1, a0, a2
 ; XCVEALU-NEXT:    mv a0, a4
-; XCVEALU-NEXT:    bnez a1, .LBB38_2
+; XCVEALU-NEXT:    bnez a1, .LBB39_2
 ; XCVEALU-NEXT:  # %bb.1:
 ; XCVEALU-NEXT:    mv a0, a6
 ; XCVEALU-NEXT:    mv a5, a7
-; XCVEALU-NEXT:  .LBB38_2:
+; XCVEALU-NEXT:  .LBB39_2:
 ; XCVEALU-NEXT:    mv a1, a5
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: slt_i64_select:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB38_2
+; RV32I-NEXT:    beq a1, a3, .LBB39_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a1, a3
-; RV32I-NEXT:    beqz a0, .LBB38_3
-; RV32I-NEXT:    j .LBB38_4
-; RV32I-NEXT:  .LBB38_2:
+; RV32I-NEXT:    beqz a0, .LBB39_3
+; RV32I-NEXT:    j .LBB39_4
+; RV32I-NEXT:  .LBB39_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
-; RV32I-NEXT:    bnez a0, .LBB38_4
-; RV32I-NEXT:  .LBB38_3:
+; RV32I-NEXT:    bnez a0, .LBB39_4
+; RV32I-NEXT:  .LBB39_3:
 ; RV32I-NEXT:    mv a4, a6
 ; RV32I-NEXT:    mv a5, a7
-; RV32I-NEXT:  .LBB38_4:
+; RV32I-NEXT:  .LBB39_4:
 ; RV32I-NEXT:    mv a0, a4
 ; RV32I-NEXT:    mv a1, a5
 ; RV32I-NEXT:    ret
@@ -944,12 +961,12 @@ define i32 @sle_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: sle_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB39_2
+; RV32I-NEXT:    beq a1, a3, .LBB40_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a3, a1
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB39_2:
+; RV32I-NEXT:  .LBB40_2:
 ; RV32I-NEXT:    sltu a0, a2, a0
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
@@ -962,27 +979,27 @@ define i32 @sge_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: sge_i64_br:
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.slt.d a0, a0, a2
-; XCVEALU-NEXT:    bnez a0, .LBB40_2
+; XCVEALU-NEXT:    bnez a0, .LBB41_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
 ; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB40_2: # %f
+; XCVEALU-NEXT:  .LBB41_2: # %f
 ; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: sge_i64_br:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB40_3
+; RV32I-NEXT:    beq a1, a3, .LBB41_3
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a1, a3
-; RV32I-NEXT:    beqz a0, .LBB40_4
-; RV32I-NEXT:  .LBB40_2: # %f
+; RV32I-NEXT:    beqz a0, .LBB41_4
+; RV32I-NEXT:  .LBB41_2: # %f
 ; RV32I-NEXT:    li a0, 0
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB40_3:
+; RV32I-NEXT:  .LBB41_3:
 ; RV32I-NEXT:    sltu a0, a0, a2
-; RV32I-NEXT:    bnez a0, .LBB40_2
-; RV32I-NEXT:  .LBB40_4: # %t
+; RV32I-NEXT:    bnez a0, .LBB41_2
+; RV32I-NEXT:  .LBB41_4: # %t
 ; RV32I-NEXT:    li a0, 1
 ; RV32I-NEXT:    ret
   %c = icmp sge i64 %a, %b
@@ -1002,11 +1019,11 @@ define i32 @ult_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: ult_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB41_2
+; RV32I-NEXT:    beq a1, a3, .LBB42_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    sltu a0, a1, a3
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB41_2:
+; RV32I-NEXT:  .LBB42_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
 ; RV32I-NEXT:    ret
   %c = icmp ult i64 %a, %b
@@ -1022,11 +1039,11 @@ define i32 @ugt_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: ugt_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB42_2
+; RV32I-NEXT:    beq a1, a3, .LBB43_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    sltu a0, a3, a1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB42_2:
+; RV32I-NEXT:  .LBB43_2:
 ; RV32I-NEXT:    sltu a0, a2, a0
 ; RV32I-NEXT:    ret
   %c = icmp ugt i64 %a, %b
@@ -1042,12 +1059,12 @@ define i32 @ule_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: ule_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB43_2
+; RV32I-NEXT:    beq a1, a3, .LBB44_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    sltu a0, a3, a1
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB43_2:
+; RV32I-NEXT:  .LBB44_2:
 ; RV32I-NEXT:    sltu a0, a2, a0
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
@@ -1060,27 +1077,27 @@ define i32 @uge_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: uge_i64_br:
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.sltu.d a0, a0, a2
-; XCVEALU-NEXT:    bnez a0, .LBB44_2
+; XCVEALU-NEXT:    bnez a0, .LBB45_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
 ; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB44_2: # %f
+; XCVEALU-NEXT:  .LBB45_2: # %f
 ; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: uge_i64_br:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB44_3
+; RV32I-NEXT:    beq a1, a3, .LBB45_3
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    sltu a0, a1, a3
-; RV32I-NEXT:    beqz a0, .LBB44_4
-; RV32I-NEXT:  .LBB44_2: # %f
+; RV32I-NEXT:    beqz a0, .LBB45_4
+; RV32I-NEXT:  .LBB45_2: # %f
 ; RV32I-NEXT:    li a0, 0
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB44_3:
+; RV32I-NEXT:  .LBB45_3:
 ; RV32I-NEXT:    sltu a0, a0, a2
-; RV32I-NEXT:    bnez a0, .LBB44_2
-; RV32I-NEXT:  .LBB44_4: # %t
+; RV32I-NEXT:    bnez a0, .LBB45_2
+; RV32I-NEXT:  .LBB45_4: # %t
 ; RV32I-NEXT:    li a0, 1
 ; RV32I-NEXT:    ret
   %c = icmp uge i64 %a, %b
@@ -1132,11 +1149,11 @@ define i32 @eq_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: eq_i64_br:
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.sne.d a0, a0, a2
-; XCVEALU-NEXT:    bnez a0, .LBB47_2
+; XCVEALU-NEXT:    bnez a0, .LBB48_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
 ; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB47_2: # %f
+; XCVEALU-NEXT:  .LBB48_2: # %f
 ; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
@@ -1145,11 +1162,11 @@ define i32 @eq_i64_br(i64 %a, i64 %b) {
 ; RV32I-NEXT:    xor a1, a1, a3
 ; RV32I-NEXT:    xor a0, a0, a2
 ; RV32I-NEXT:    or a0, a0, a1
-; RV32I-NEXT:    bnez a0, .LBB47_2
+; RV32I-NEXT:    bnez a0, .LBB48_2
 ; RV32I-NEXT:  # %bb.1: # %t
 ; RV32I-NEXT:    li a0, 1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB47_2: # %f
+; RV32I-NEXT:  .LBB48_2: # %f
 ; RV32I-NEXT:    li a0, 0
 ; RV32I-NEXT:    ret
   %c = icmp eq i64 %a, %b
@@ -1201,11 +1218,11 @@ define i32 @ne_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: ne_i64_br:
 ; XCVEALU:       # %bb.0:
 ; XCVEALU-NEXT:    cv.seq.d a0, a0, a2
-; XCVEALU-NEXT:    bnez a0, .LBB50_2
+; XCVEALU-NEXT:    bnez a0, .LBB51_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
 ; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB50_2: # %f
+; XCVEALU-NEXT:  .LBB51_2: # %f
 ; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
@@ -1214,10 +1231,10 @@ define i32 @ne_i64_br(i64 %a, i64 %b) {
 ; RV32I-NEXT:    xor a1, a1, a3
 ; RV32I-NEXT:    xor a0, a0, a2
 ; RV32I-NEXT:    or a0, a0, a1
-; RV32I-NEXT:    beqz a0, .LBB50_2
+; RV32I-NEXT:    beqz a0, .LBB51_2
 ; RV32I-NEXT:  # %bb.1: # %t
 ; RV32I-NEXT:    li a0, 1
-; RV32I-NEXT:  .LBB50_2: # %f
+; RV32I-NEXT:  .LBB51_2: # %f
 ; RV32I-NEXT:    ret
   %c = icmp ne i64 %a, %b
   br i1 %c, label %t, label %f
@@ -1252,12 +1269,12 @@ define i32 @sge_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: sge_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB52_2
+; RV32I-NEXT:    beq a1, a3, .LBB53_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    slt a0, a1, a3
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB52_2:
+; RV32I-NEXT:  .LBB53_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
@@ -1274,12 +1291,12 @@ define i32 @uge_i64(i64 %a, i64 %b) {
 ;
 ; RV32I-LABEL: uge_i64:
 ; RV32I:       # %bb.0:
-; RV32I-NEXT:    beq a1, a3, .LBB53_2
+; RV32I-NEXT:    beq a1, a3, .LBB54_2
 ; RV32I-NEXT:  # %bb.1:
 ; RV32I-NEXT:    sltu a0, a1, a3
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
-; RV32I-NEXT:  .LBB53_2:
+; RV32I-NEXT:  .LBB54_2:
 ; RV32I-NEXT:    sltu a0, a0, a2
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
