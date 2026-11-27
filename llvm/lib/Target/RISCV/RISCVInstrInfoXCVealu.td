@@ -171,6 +171,7 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_EXTWZ_D : CVInstEaluR<0b0110010, 0b101, "cv.extwz.d", Rs1=GPR>,
                    Sched<[]>;
   def CV_SLLI_D : CVInstEaluRI<0b0010000, 0b001, "cv.slli.d">, Sched<[]>;
+  def CV_SRLI_D : CVInstEaluRI<0b0010010, 0b101, "cv.srli.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -192,8 +193,8 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // CV_SLET_D/CV_SLETU_D in
 // RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
-// A shift by a constant below 32 is selected to CV_SLLI_D from the same
-// SLLD node (the constant is the low word of the amount pair).
+// A shift by a constant below 32 is selected to CV_SLLI_D/CV_SRLI_D from the
+// same SLLD/SRLD node (the constant is the low word of the amount pair).
 // CV_EXTWS_D and CV_EXTWZ_D have no selection: the default expansion of a
 // 64-bit extension of a word is already one instruction (the high word is a
 // srai, or zero).

@@ -702,9 +702,7 @@ define i64 @lshr_i64_i32(i64 %a, i32 %n) {
 define i64 @lshr_i64_const(i64 %a) {
 ; XCVEALU-LABEL: lshr_i64_const:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    li a2, 3
-; XCVEALU-NEXT:    li a3, 0
-; XCVEALU-NEXT:    cv.srl.d a0, a0, a2
+; XCVEALU-NEXT:    cv.srli.d a0, a0, 3
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: lshr_i64_const:
