@@ -1599,4 +1599,66 @@ define i64 @zext_i16_i64_param(i16 zeroext %a) {
   ret i64 %r
 }
 
+; C: (long long)(signed char)a.
+define i64 @sext_i8_i64(i32 %a) {
+; XCVEALU-LABEL: sext_i8_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.extbs.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i8_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a1, a0, 24
+; RV32I-NEXT:    srai a0, a1, 24
+; RV32I-NEXT:    srai a1, a1, 31
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i8
+  %r = sext i8 %t to i64
+  ret i64 %r
+}
+
+define i64 @sext_i8_i64_add(i32 %a, i64 %b) {
+; XCVEALU-LABEL: sext_i8_i64_add:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    mv a3, a2
+; XCVEALU-NEXT:    cv.extbs.d a4, a0
+; XCVEALU-NEXT:    mv a2, a1
+; XCVEALU-NEXT:    cv.add.d a0, a4, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i8_i64_add:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a0, a0, 24
+; RV32I-NEXT:    srai a3, a0, 24
+; RV32I-NEXT:    srai a4, a0, 31
+; RV32I-NEXT:    add a0, a3, a1
+; RV32I-NEXT:    add a1, a4, a2
+; RV32I-NEXT:    sltu a2, a0, a3
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i8
+  %e = sext i8 %t to i64
+  %r = add i64 %e, %b
+  ret i64 %r
+}
+
+; Only the low word is used: no pair, the default expansion.
+define i32 @sext_i8_i64_i32(i32 %a) {
+; XCVEALU-LABEL: sext_i8_i64_i32:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    slli a0, a0, 24
+; XCVEALU-NEXT:    srai a0, a0, 24
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i8_i64_i32:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a0, a0, 24
+; RV32I-NEXT:    srai a0, a0, 24
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i8
+  %e = sext i8 %t to i64
+  %r = trunc i64 %e to i32
+  ret i32 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)

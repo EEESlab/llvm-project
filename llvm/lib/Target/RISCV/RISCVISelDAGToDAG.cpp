@@ -2687,11 +2687,24 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     return;
   }
   case RISCVISD::EXTHSD:
-  case RISCVISD::EXTHZD: {
+  case RISCVISD::EXTHZD:
+  case RISCVISD::EXTBSD: {
     // One 32-bit register in, one pair out.
     assert(!Subtarget->is64Bit() && "Unexpected opcode");
-    unsigned Opc = Node->getOpcode() == RISCVISD::EXTHSD ? RISCV::CV_EXTHS_D
-                                                         : RISCV::CV_EXTHZ_D;
+    unsigned Opc;
+    switch (Node->getOpcode()) {
+    default:
+      llvm_unreachable("Unexpected opcode");
+    case RISCVISD::EXTHSD:
+      Opc = RISCV::CV_EXTHS_D;
+      break;
+    case RISCVISD::EXTHZD:
+      Opc = RISCV::CV_EXTHZ_D;
+      break;
+    case RISCVISD::EXTBSD:
+      Opc = RISCV::CV_EXTBS_D;
+      break;
+    }
     MachineSDNode *New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped,
                                                 Node->getOperand(0));
     auto [Lo, Hi] = extractGPRPair(CurDAG, DL, SDValue(New, 0));
