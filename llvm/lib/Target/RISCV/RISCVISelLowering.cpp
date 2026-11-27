@@ -390,12 +390,13 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD/SUB/AND/OR/XOR/SMIN/UMIN/SMAX for RV32+XCVealu
-    // (cv.add.d, cv.sub.d, cv.and.d, cv.or.d, cv.xor.d, cv.min.d, cv.minu.d,
-    // cv.max.d on register pairs).
+    // Custom legalize i64 ADD/SUB/AND/OR/XOR and SMIN/UMIN/SMAX/UMAX for
+    // RV32+XCVealu (cv.add.d, cv.sub.d, cv.and.d, cv.or.d, cv.xor.d, cv.min.d,
+    // cv.minu.d, cv.max.d, cv.maxu.d on register pairs).
     setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR, ISD::XOR},
                        MVT::i64, Custom);
-    setOperationAction({ISD::SMIN, ISD::UMIN, ISD::SMAX}, MVT::i64, Custom);
+    setOperationAction({ISD::SMIN, ISD::UMIN, ISD::SMAX, ISD::UMAX}, MVT::i64,
+                       Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15647,12 +15648,13 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
   }
   case ISD::SMIN:
   case ISD::UMIN:
-  case ISD::SMAX: {
+  case ISD::SMAX:
+  case ISD::UMAX: {
     assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
            Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
 
-    // Expand to SMIND/UMIND/SMAXD. A constant operand is materialised in a
-    // pair: still shorter than the default compare-and-select expansion.
+    // Expand to SMIND/UMIND/SMAXD/UMAXD. A constant operand is materialised
+    // in a pair: still shorter than the default compare-and-select expansion.
     auto [LHSLo, LHSHi] =
         DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
     auto [RHSLo, RHSHi] =
@@ -15669,6 +15671,9 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
       break;
     case ISD::SMAX:
       Opc = RISCVISD::SMAXD;
+      break;
+    case ISD::UMAX:
+      Opc = RISCVISD::UMAXD;
       break;
     }
     SDValue Res = DAG.getNode(Opc, DL, DAG.getVTList(MVT::i32, MVT::i32),

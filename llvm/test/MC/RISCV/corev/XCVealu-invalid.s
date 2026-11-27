@@ -123,3 +123,18 @@ cv.max.d a0, a2, 0
 
 cv.max.d a0, a2
 # CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.maxu.d a1, a2, a4
+# CHECK-ERROR: :[[@LINE-1]]:11: error: register must be even
+
+cv.maxu.d a0, a3, a4
+# CHECK-ERROR: :[[@LINE-1]]:15: error: register must be even
+
+cv.maxu.d a0, a2, a5
+# CHECK-ERROR: :[[@LINE-1]]:19: error: register must be even
+
+cv.maxu.d a0, a2, 0
+# CHECK-ERROR: :[[@LINE-1]]:19: error: invalid operand for instruction
+
+cv.maxu.d a0, a2
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
