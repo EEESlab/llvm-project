@@ -9245,9 +9245,9 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
       assert(Subtarget.hasVendorXCVealu() && "Unexpected custom lowering");
       // A 64-bit compare on register pairs: cv.slt.d/cv.sltu.d for a
       // less-than, the operands swapped for greater-than, the result inverted
-      // for the or-equal forms; cv.seq.d for equality, inverted for not-equal.
-      // A compare with zero keeps the default expansion, which is shorter
-      // (no pair to materialise).
+      // for the or-equal forms; cv.seq.d/cv.sne.d for equality. A compare
+      // with zero keeps the default expansion, which is shorter (no pair to
+      // materialise).
       SDLoc DL(Op);
       MVT VT = Op.getSimpleValueType();
       SDValue LHS = Op.getOperand(0);
@@ -9262,8 +9262,7 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
       case ISD::SETNE:
         if (isNullConstant(LHS) || isNullConstant(RHS))
           return SDValue();
-        Opc = RISCVISD::SEQD;
-        Invert = CCVal == ISD::SETNE;
+        Opc = CCVal == ISD::SETEQ ? RISCVISD::SEQD : RISCVISD::SNED;
         break;
       case ISD::SETLT:
       case ISD::SETULT:
@@ -23900,6 +23899,7 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   case RISCVISD::SLTD:
   case RISCVISD::SLTUD:
   case RISCVISD::SEQD:
+  case RISCVISD::SNED:
     // The compares on register pairs write 0 or 1.
     Known.Zero.setBitsFrom(1);
     break;

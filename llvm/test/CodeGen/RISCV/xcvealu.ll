@@ -1091,7 +1091,7 @@ f:
   ret i32 0
 }
 
-; Equality: cv.seq.d, inverted for not-equal (until cv.sne.d).
+; Equality: cv.seq.d and cv.sne.d.
 define i32 @eq_i64(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: eq_i64:
 ; XCVEALU:       # %bb.0:
@@ -1113,8 +1113,7 @@ define i32 @eq_i64(i64 %a, i64 %b) {
 define i32 @ne_i64(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: ne_i64:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    cv.seq.d a0, a0, a2
-; XCVEALU-NEXT:    xori a0, a0, 1
+; XCVEALU-NEXT:    cv.sne.d a0, a0, a2
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: ne_i64:
@@ -1132,11 +1131,13 @@ define i32 @ne_i64(i64 %a, i64 %b) {
 define i32 @eq_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: eq_i64_br:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    cv.seq.d a0, a0, a2
-; XCVEALU-NEXT:    beqz a0, .LBB47_2
+; XCVEALU-NEXT:    cv.sne.d a0, a0, a2
+; XCVEALU-NEXT:    bnez a0, .LBB47_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
+; XCVEALU-NEXT:    ret
 ; XCVEALU-NEXT:  .LBB47_2: # %f
+; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: eq_i64_br:
@@ -1192,6 +1193,53 @@ define i32 @eq_i64_const(i64 %a) {
 ; RV32I-NEXT:    seqz a0, a0
 ; RV32I-NEXT:    ret
   %c = icmp eq i64 %a, 100
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @ne_i64_br(i64 %a, i64 %b) {
+; XCVEALU-LABEL: ne_i64_br:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.seq.d a0, a0, a2
+; XCVEALU-NEXT:    bnez a0, .LBB50_2
+; XCVEALU-NEXT:  # %bb.1: # %t
+; XCVEALU-NEXT:    li a0, 1
+; XCVEALU-NEXT:    ret
+; XCVEALU-NEXT:  .LBB50_2: # %f
+; XCVEALU-NEXT:    li a0, 0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ne_i64_br:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    xor a1, a1, a3
+; RV32I-NEXT:    xor a0, a0, a2
+; RV32I-NEXT:    or a0, a0, a1
+; RV32I-NEXT:    beqz a0, .LBB50_2
+; RV32I-NEXT:  # %bb.1: # %t
+; RV32I-NEXT:    li a0, 1
+; RV32I-NEXT:  .LBB50_2: # %f
+; RV32I-NEXT:    ret
+  %c = icmp ne i64 %a, %b
+  br i1 %c, label %t, label %f
+t:
+  ret i32 1
+f:
+  ret i32 0
+}
+
+define i32 @ne_i64_zero(i64 %a) {
+; XCVEALU-LABEL: ne_i64_zero:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    or a0, a0, a1
+; XCVEALU-NEXT:    snez a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ne_i64_zero:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    or a0, a0, a1
+; RV32I-NEXT:    snez a0, a0
+; RV32I-NEXT:    ret
+  %c = icmp ne i64 %a, 0
   %r = zext i1 %c to i32
   ret i32 %r
 }
