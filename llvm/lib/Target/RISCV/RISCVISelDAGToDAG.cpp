@@ -2570,15 +2570,28 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       // the two 32-bit values.
       unsigned Opc = Opcode == RISCVISD::WADDAU ? RISCV::WADDAU : RISCV::WSUBAU;
       New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped, Op0, Op1Lo, Op1Hi);
-    } else if ((Opcode == RISCVISD::SLLD || Opcode == RISCVISD::SRLD) &&
+    } else if ((Opcode == RISCVISD::SLLD || Opcode == RISCVISD::SRLD ||
+                Opcode == RISCVISD::SRAD) &&
                isa<ConstantSDNode>(Op1Lo) && isNullConstant(Op1Hi)) {
-      // A shift by a constant: the immediate form (cv.slli.d, cv.srli.d). The
-      // amount is below 32, the legaliser leaves larger ones to the default
-      // expansion.
+      // A shift by a constant: the immediate form (cv.slli.d, cv.srli.d,
+      // cv.srai.d). The amount is below 32, the legaliser leaves larger ones
+      // to the default expansion.
       uint64_t ShAmt = Op1Lo->getAsZExtVal();
       assert(ShAmt < 32 && "Unexpected shift amount");
-      unsigned Opc =
-          Opcode == RISCVISD::SLLD ? RISCV::CV_SLLI_D : RISCV::CV_SRLI_D;
+      unsigned Opc;
+      switch (Opcode) {
+      default:
+        llvm_unreachable("Unexpected opcode");
+      case RISCVISD::SLLD:
+        Opc = RISCV::CV_SLLI_D;
+        break;
+      case RISCVISD::SRLD:
+        Opc = RISCV::CV_SRLI_D;
+        break;
+      case RISCVISD::SRAD:
+        Opc = RISCV::CV_SRAI_D;
+        break;
+      }
       New = CurDAG->getMachineNode(
           Opc, DL, MVT::Untyped, Op0,
           CurDAG->getTargetConstant(ShAmt, DL, MVT::i32));
