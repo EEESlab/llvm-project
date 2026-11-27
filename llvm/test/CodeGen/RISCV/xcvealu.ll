@@ -1752,4 +1752,59 @@ define i32 @zext_i8_i64_i32(i32 %a) {
   ret i32 %r
 }
 
+; C: a + 5, a - 5 (an add of -5), a + 16 (outside the immediate: the pair).
+define i64 @add_i64_imm(i64 %a) {
+; XCVEALU-LABEL: add_i64_imm:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.addi.d a0, a0, 5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: add_i64_imm:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi a2, a0, 5
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    add a1, a1, a0
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    ret
+  %r = add i64 %a, 5
+  ret i64 %r
+}
+
+define i64 @add_i64_imm_neg(i64 %a) {
+; XCVEALU-LABEL: add_i64_imm_neg:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.addi.d a0, a0, -5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: add_i64_imm_neg:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi a2, a0, -5
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    add a0, a1, a0
+; RV32I-NEXT:    addi a1, a0, -1
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    ret
+  %r = add i64 %a, -5
+  ret i64 %r
+}
+
+define i64 @add_i64_imm_out(i64 %a) {
+; XCVEALU-LABEL: add_i64_imm_out:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a2, 16
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.add.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: add_i64_imm_out:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi a2, a0, 16
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    add a1, a1, a0
+; RV32I-NEXT:    mv a0, a2
+; RV32I-NEXT:    ret
+  %r = add i64 %a, 16
+  ret i64 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)

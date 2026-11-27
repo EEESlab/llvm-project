@@ -588,3 +588,23 @@ cv.srai.d t3, t3, 31
 # CHECK-INSTR: cv.srai.d t3, t3, 31
 # CHECK-ENCODING: [0x13,0x5e,0xfe,0x65]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.addi.d a0, a2, 5
+# CHECK-INSTR: cv.addi.d a0, a2, 5
+# CHECK-ENCODING: [0x13,0x15,0x56,0x22]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.addi.d sp, tp, 5
+# CHECK-INSTR: cv.addi.d sp, tp, 5
+# CHECK-ENCODING: [0x13,0x11,0x52,0x22]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.addi.d t5, zero, -16
+# CHECK-INSTR: cv.addi.d t5, zero, -16
+# CHECK-ENCODING: [0x13,0x1f,0x00,0x23]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.addi.d t3, t3, 15
+# CHECK-INSTR: cv.addi.d t3, t3, 15
+# CHECK-ENCODING: [0x13,0x1e,0xfe,0x22]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
