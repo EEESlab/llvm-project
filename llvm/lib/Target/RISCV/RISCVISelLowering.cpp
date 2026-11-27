@@ -9244,8 +9244,9 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
     if (OpVT == MVT::i64 && !Subtarget.is64Bit()) {
       assert(Subtarget.hasVendorXCVealu() && "Unexpected custom lowering");
       // A 64-bit compare on register pairs: cv.slt.d/cv.sltu.d for a
-      // less-than, the operands swapped for greater-than, the result inverted
-      // for the or-equal forms; cv.seq.d/cv.sne.d for equality. A compare
+      // less-than and cv.slet.d for a signed less-or-equal, the operands
+      // swapped for the greater-than forms, the result inverted for the
+      // unsigned or-equal forms; cv.seq.d/cv.sne.d for equality. A compare
       // with zero keeps the default expansion, which is shorter (no pair to
       // materialise).
       SDLoc DL(Op);
@@ -9265,24 +9266,36 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
         Opc = CCVal == ISD::SETEQ ? RISCVISD::SEQD : RISCVISD::SNED;
         break;
       case ISD::SETLT:
-      case ISD::SETULT:
+        Opc = RISCVISD::SLTD;
         break;
       case ISD::SETGT:
-      case ISD::SETUGT:
         std::swap(LHS, RHS);
-        break;
-      case ISD::SETGE:
-      case ISD::SETUGE:
-        Invert = true;
+        Opc = RISCVISD::SLTD;
         break;
       case ISD::SETLE:
+        Opc = RISCVISD::SLETD;
+        break;
+      case ISD::SETGE:
+        std::swap(LHS, RHS);
+        Opc = RISCVISD::SLETD;
+        break;
+      case ISD::SETULT:
+        Opc = RISCVISD::SLTUD;
+        break;
+      case ISD::SETUGT:
+        std::swap(LHS, RHS);
+        Opc = RISCVISD::SLTUD;
+        break;
+      case ISD::SETUGE:
+        Opc = RISCVISD::SLTUD;
+        Invert = true;
+        break;
       case ISD::SETULE:
         std::swap(LHS, RHS);
+        Opc = RISCVISD::SLTUD;
         Invert = true;
         break;
       }
-      if (!ISD::isIntEqualitySetCC(CCVal))
-        Opc = ISD::isSignedIntSetCC(CCVal) ? RISCVISD::SLTD : RISCVISD::SLTUD;
       auto [LHSLo, LHSHi] = DAG.SplitScalar(LHS, DL, MVT::i32, MVT::i32);
       auto [RHSLo, RHSHi] = DAG.SplitScalar(RHS, DL, MVT::i32, MVT::i32);
       SDValue Res = DAG.getNode(Opc, DL, VT, LHSLo, LHSHi, RHSLo, RHSHi);
@@ -23900,6 +23913,7 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   case RISCVISD::SLTUD:
   case RISCVISD::SEQD:
   case RISCVISD::SNED:
+  case RISCVISD::SLETD:
     // The compares on register pairs write 0 or 1.
     Known.Zero.setBitsFrom(1);
     break;

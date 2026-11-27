@@ -869,11 +869,13 @@ define i32 @sgt_i64(i64 %a, i64 %b) {
 define i32 @slt_i64_br(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: slt_i64_br:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    cv.slt.d a0, a0, a2
-; XCVEALU-NEXT:    beqz a0, .LBB37_2
+; XCVEALU-NEXT:    cv.slet.d a0, a2, a0
+; XCVEALU-NEXT:    bnez a0, .LBB37_2
 ; XCVEALU-NEXT:  # %bb.1: # %t
 ; XCVEALU-NEXT:    li a0, 1
+; XCVEALU-NEXT:    ret
 ; XCVEALU-NEXT:  .LBB37_2: # %f
+; XCVEALU-NEXT:    li a0, 0
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: slt_i64_br:
@@ -933,12 +935,11 @@ define i64 @slt_i64_select(i64 %a, i64 %b, i64 %x, i64 %y) {
   ret i64 %r
 }
 
-; The or-equal forms invert the result (until cv.slet.d).
+; Signed or-equal: cv.slet.d, operands swapped for greater-or-equal.
 define i32 @sle_i64(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: sle_i64:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    cv.slt.d a0, a2, a0
-; XCVEALU-NEXT:    xori a0, a0, 1
+; XCVEALU-NEXT:    cv.slet.d a0, a0, a2
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: sle_i64:
@@ -1240,6 +1241,28 @@ define i32 @ne_i64_zero(i64 %a) {
 ; RV32I-NEXT:    snez a0, a0
 ; RV32I-NEXT:    ret
   %c = icmp ne i64 %a, 0
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @sge_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: sge_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.slet.d a0, a2, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sge_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB52_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    slt a0, a1, a3
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+; RV32I-NEXT:  .LBB52_2:
+; RV32I-NEXT:    sltu a0, a0, a2
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+  %c = icmp sge i64 %a, %b
   %r = zext i1 %c to i32
   ret i32 %r
 }
