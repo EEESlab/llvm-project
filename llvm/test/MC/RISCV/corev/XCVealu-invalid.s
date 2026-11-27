@@ -312,3 +312,15 @@ cv.exths.d a0
 
 cv.exths.d a0, a2, a4
 # CHECK-ERROR: :[[@LINE-1]]:20: error: invalid operand for instruction
+
+cv.exthz.d a1, a2
+# CHECK-ERROR: :[[@LINE-1]]:12: error: register must be even
+
+cv.exthz.d a0, 0
+# CHECK-ERROR: :[[@LINE-1]]:16: error: invalid operand for instruction
+
+cv.exthz.d a0
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.exthz.d a0, a2, a4
+# CHECK-ERROR: :[[@LINE-1]]:20: error: invalid operand for instruction
