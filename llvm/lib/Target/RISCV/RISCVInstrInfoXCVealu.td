@@ -154,6 +154,8 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                    Sched<[]>;
   def CV_EXTBZ_D : CVInstEaluR<0b0110010, 0b011, "cv.extbz.d", Rs1=GPR>,
                    Sched<[]>;
+  def CV_EXTWS_D : CVInstEaluR<0b0110010, 0b100, "cv.extws.d", Rs1=GPR>,
+                   Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -175,3 +177,5 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // CV_SLET_D/CV_SLETU_D in
 // RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
+// CV_EXTWS_D has no selection: the default expansion of a 64-bit sign
+// extension of a word is already one instruction (srai of the high word).
