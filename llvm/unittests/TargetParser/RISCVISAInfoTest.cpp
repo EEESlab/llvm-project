@@ -661,6 +661,11 @@ TEST(ParseArchString, RejectsConflictingExtensions) {
               "'xcvealu' and 'zba' extensions are incompatible");
   }
 
+  for (StringRef Input : {"rv32i_zbb_xcvealu"}) {
+    EXPECT_EQ(toString(RISCVISAInfo::parseArchString(Input, true).takeError()),
+              "'xcvealu' and 'zbb' extensions are incompatible");
+  }
+
   // In these ISA strings, the non-rv32 extension should be last, after an
   // underscore.
   for (StringRef Input : {

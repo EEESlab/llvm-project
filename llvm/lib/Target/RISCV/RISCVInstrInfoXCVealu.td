@@ -51,6 +51,7 @@ def riscv_umaxd : RVSDNode<"UMAXD", SDT_RISCVIntBinOpD,
 // node keeps the four-input profile with (amount, 0) as the second pair.
 def riscv_slld : RVSDNode<"SLLD", SDT_RISCVIntBinOpD>;
 def riscv_srld : RVSDNode<"SRLD", SDT_RISCVIntBinOpD>;
+def riscv_srad : RVSDNode<"SRAD", SDT_RISCVIntBinOpD>;
 
 //===----------------------------------------------------------------------===//
 // Instruction class templates
@@ -92,16 +93,17 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                   Sched<[]>;
   def CV_SLL_D : CVInstEaluRR<0b0010000, 0b001, "cv.sll.d">, Sched<[]>;
   def CV_SRL_D : CVInstEaluRR<0b0010000, 0b101, "cv.srl.d">, Sched<[]>;
+  def CV_SRA_D : CVInstEaluRR<0b0110000, 0b101, "cv.sra.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl is legalised to
-// the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/SMAXD/UMAXD/
-// SLLD/SRLD node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to
-// CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
-// CV_MAXU_D/CV_SLL_D/CV_SRL_D in RISCVISelDAGToDAG.cpp, where the register
-// pair is built with REG_SEQUENCE: an i64 is not a legal type on RV32, so no
-// tablegen pattern can match it.
+// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra is legalised
+// to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/SMAXD/UMAXD/
+// SLLD/SRLD/SRAD node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected
+// to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
+// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D in RISCVISelDAGToDAG.cpp, where the
+// register pair is built with REG_SEQUENCE: an i64 is not a legal type on
+// RV32, so no tablegen pattern can match it.

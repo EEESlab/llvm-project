@@ -795,9 +795,14 @@ Error RISCVISAInfo::checkDependency() {
   if (Exts.count("zclsd") != 0 && Exts.count("zcf") != 0)
     return getIncompatibleError("zclsd", "zcf");
 
-  // cv.xor.d has the encoding of sh2add.
-  if (Exts.count("xcvealu") != 0 && Exts.count("zba") != 0)
-    return getIncompatibleError("xcvealu", "zba");
+  // cv.xor.d has the encoding of sh2add and cv.sra.d the one of ror.
+  if (Exts.count("xcvealu") != 0) {
+    if (Exts.count("zba") != 0)
+      return getIncompatibleError("xcvealu", "zba");
+
+    if (Exts.count("zbb") != 0)
+      return getIncompatibleError("xcvealu", "zbb");
+  }
 
   if (HasZcmp && HasXqccmp)
     return getIncompatibleError("zcmp", "xqccmp");
