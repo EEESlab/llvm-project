@@ -187,3 +187,23 @@ cv.maxu.d t3, t3, t3
 # CHECK-INSTR: cv.maxu.d t3, t3, t3
 # CHECK-ENCODING: [0x33,0x7e,0xce,0x25]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.sll.d a0, a2, a4
+# CHECK-INSTR: cv.sll.d a0, a2, a4
+# CHECK-ENCODING: [0x33,0x15,0xe6,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.sll.d sp, tp, t1
+# CHECK-INSTR: cv.sll.d sp, tp, t1
+# CHECK-ENCODING: [0x33,0x11,0x62,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.sll.d t5, zero, s0
+# CHECK-INSTR: cv.sll.d t5, zero, s0
+# CHECK-ENCODING: [0x33,0x1f,0x80,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.sll.d t3, t3, t3
+# CHECK-INSTR: cv.sll.d t3, t3, t3
+# CHECK-ENCODING: [0x33,0x1e,0xce,0x21]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}

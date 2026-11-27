@@ -546,3 +546,84 @@ define i64 @umax_i64_const(i64 %a) {
 }
 
 declare i64 @llvm.umax.i64(i64, i64)
+
+; The shift amount is a pair too: the amount in the even register, zero in
+; the odd one.
+define i64 @shl_i64(i64 %a, i64 %n) {
+; XCVEALU-LABEL: shl_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.sll.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: shl_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi a4, a2, -32
+; RV32I-NEXT:    sll a3, a0, a2
+; RV32I-NEXT:    bltz a4, .LBB24_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    mv a1, a3
+; RV32I-NEXT:    j .LBB24_3
+; RV32I-NEXT:  .LBB24_2:
+; RV32I-NEXT:    not a5, a2
+; RV32I-NEXT:    srli a0, a0, 1
+; RV32I-NEXT:    sll a1, a1, a2
+; RV32I-NEXT:    srl a0, a0, a5
+; RV32I-NEXT:    or a1, a1, a0
+; RV32I-NEXT:  .LBB24_3:
+; RV32I-NEXT:    srai a0, a4, 31
+; RV32I-NEXT:    and a0, a0, a3
+; RV32I-NEXT:    ret
+  %r = shl i64 %a, %n
+  ret i64 %r
+}
+
+; C: long long << int
+define i64 @shl_i64_i32(i64 %a, i32 %n) {
+; XCVEALU-LABEL: shl_i64_i32:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.sll.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: shl_i64_i32:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi a4, a2, -32
+; RV32I-NEXT:    sll a3, a0, a2
+; RV32I-NEXT:    bltz a4, .LBB25_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    mv a1, a3
+; RV32I-NEXT:    j .LBB25_3
+; RV32I-NEXT:  .LBB25_2:
+; RV32I-NEXT:    not a5, a2
+; RV32I-NEXT:    srli a0, a0, 1
+; RV32I-NEXT:    sll a1, a1, a2
+; RV32I-NEXT:    srl a0, a0, a5
+; RV32I-NEXT:    or a1, a1, a0
+; RV32I-NEXT:  .LBB25_3:
+; RV32I-NEXT:    srai a0, a4, 31
+; RV32I-NEXT:    and a0, a0, a3
+; RV32I-NEXT:    ret
+  %e = sext i32 %n to i64
+  %r = shl i64 %a, %e
+  ret i64 %r
+}
+
+define i64 @shl_i64_const(i64 %a) {
+; XCVEALU-LABEL: shl_i64_const:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    li a2, 3
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.sll.d a0, a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: shl_i64_const:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    srli a2, a0, 29
+; RV32I-NEXT:    slli a1, a1, 3
+; RV32I-NEXT:    or a1, a1, a2
+; RV32I-NEXT:    slli a0, a0, 3
+; RV32I-NEXT:    ret
+  %r = shl i64 %a, 3
+  ret i64 %r
+}

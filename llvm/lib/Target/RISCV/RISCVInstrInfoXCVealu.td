@@ -47,6 +47,9 @@ def riscv_smaxd : RVSDNode<"SMAXD", SDT_RISCVIntBinOpD,
                            [SDNPCommutative, SDNPAssociative]>;
 def riscv_umaxd : RVSDNode<"UMAXD", SDT_RISCVIntBinOpD,
                            [SDNPCommutative, SDNPAssociative]>;
+// Shifts: the amount is a register pair too (GAP sll.d rs2 is a pair), so the
+// node keeps the four-input profile with (amount, 0) as the second pair.
+def riscv_slld : RVSDNode<"SLLD", SDT_RISCVIntBinOpD>;
 
 //===----------------------------------------------------------------------===//
 // Instruction class templates
@@ -86,15 +89,17 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                  Sched<[]>;
   def CV_MAXU_D : CVInstEaluRR<0b0010010, 0b111, "cv.maxu.d", Commutable=1>,
                   Sched<[]>;
+  def CV_SLL_D : CVInstEaluRR<0b0010000, 0b001, "cv.sll.d">, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
 // Patterns
 //===----------------------------------------------------------------------===//
 
-// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax is legalised to the
-// two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/SMAXD/UMAXD node
-// (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to CV_ADD_D/
-// CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/CV_MAXU_D in
-// RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
-// an i64 is not a legal type on RV32, so no tablegen pattern can match it.
+// A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl is legalised to the
+// two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/SMAXD/UMAXD/SLLD
+// node (RISCVISelLowering.cpp, ReplaceNodeResults) and selected to CV_ADD_D/
+// CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/CV_MAXU_D/
+// CV_SLL_D in RISCVISelDAGToDAG.cpp, where the register pair is built with
+// REG_SEQUENCE: an i64 is not a legal type on RV32, so no tablegen pattern can
+// match it.

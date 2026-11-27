@@ -2540,6 +2540,7 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
   case RISCVISD::UMIND:
   case RISCVISD::SMAXD:
   case RISCVISD::UMAXD:
+  case RISCVISD::SLLD:
   case RISCVISD::PPAIRE_DB:
   case RISCVISD::WADDAU:
   case RISCVISD::WSUBAU: {
@@ -2601,6 +2602,9 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
         break;
       case RISCVISD::UMAXD:
         Opc = RISCV::CV_MAXU_D;
+        break;
+      case RISCVISD::SLLD:
+        Opc = RISCV::CV_SLL_D;
         break;
       case RISCVISD::PPAIRE_DB:
         Opc = RISCV::PPAIRE_DB;
