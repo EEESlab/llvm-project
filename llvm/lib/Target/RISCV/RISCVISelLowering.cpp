@@ -15682,16 +15682,17 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
 
     // With a constant operand the default expansion is usually better: each
     // half folds with its half of the constant, nothing has to be
-    // materialised. The immediate forms (cv.xori.d, cv.ori.d) win only when
-    // the constant fits their 5-bit signed immediate and the default
-    // expansion touches both words: a negative constant for xor and or (the
-    // high word gets inverted, or set to all ones). The node then carries
-    // the constant pair, Select picks the immediate form.
+    // materialised. The immediate forms (cv.xori.d, cv.ori.d, cv.andi.d)
+    // win only when the constant fits their 5-bit signed immediate and the
+    // default expansion touches both words: a negative constant for xor and
+    // or (the high word gets inverted, or set to all ones), a non-negative
+    // one for and (the high word gets cleared). The node then carries the
+    // constant pair, Select picks the immediate form.
     if (isa<ConstantSDNode>(N->getOperand(0)))
       break;
     if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
       int64_t Imm = C->getSExtValue();
-      if (N->getOpcode() == ISD::AND || !isInt<5>(Imm) || Imm >= 0)
+      if (!isInt<5>(Imm) || (N->getOpcode() == ISD::AND ? Imm < 0 : Imm >= 0))
         break;
     }
 
@@ -24003,6 +24004,23 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
     // The low word is a zero-extended byte, the high word is zero.
     Known.Zero.setBitsFrom(Op.getResNo() == 0 ? 8 : 0);
     break;
+  case RISCVISD::ANDD:
+  case RISCVISD::ORD:
+  case RISCVISD::XORD: {
+    // Each word of the result is the operation on the same words of the two
+    // operands (lo1, hi1, lo2, hi2): what the default expansion would give,
+    // needed when a constant pair is carried by the node.
+    unsigned Res = Op.getResNo();
+    Known = DAG.computeKnownBits(Op.getOperand(Res), Depth + 1);
+    KnownBits Known2 = DAG.computeKnownBits(Op.getOperand(Res + 2), Depth + 1);
+    if (Opc == RISCVISD::ANDD)
+      Known &= Known2;
+    else if (Opc == RISCVISD::ORD)
+      Known |= Known2;
+    else
+      Known ^= Known2;
+    break;
+  }
   case RISCVISD::SELECT_CC: {
     Known = DAG.computeKnownBits(Op.getOperand(4), Depth + 1);
     // If we don't know any bits, early out.

@@ -498,3 +498,24 @@ cv.ori.d a0, a2
 
 cv.ori.d a0, a2, 5, 6
 # CHECK-ERROR: :[[@LINE-1]]:21: error: invalid operand for instruction
+
+cv.andi.d a1, a2, 5
+# CHECK-ERROR: :[[@LINE-1]]:11: error: register must be even
+
+cv.andi.d a0, a3, 5
+# CHECK-ERROR: :[[@LINE-1]]:15: error: register must be even
+
+cv.andi.d a0, a2, 16
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [-16, 15]
+
+cv.andi.d a0, a2, -17
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [-16, 15]
+
+cv.andi.d a0, a2, a4
+# CHECK-ERROR: :[[@LINE-1]]:19: error: immediate must be an integer in the range [-16, 15]
+
+cv.andi.d a0, a2
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.andi.d a0, a2, 5, 6
+# CHECK-ERROR: :[[@LINE-1]]:22: error: invalid operand for instruction

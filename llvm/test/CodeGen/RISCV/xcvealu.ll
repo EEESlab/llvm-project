@@ -1901,4 +1901,72 @@ define i64 @or_i64_imm_out(i64 %a) {
   ret i64 %r
 }
 
+; C: a & 5 (both words change: the immediate form), a & -5 (only the low
+; word: the default andi), a & 16 (outside the immediate).
+define i64 @and_i64_imm_pos(i64 %a) {
+; XCVEALU-LABEL: and_i64_imm_pos:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.andi.d a0, a0, 5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_imm_pos:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    andi a0, a0, 5
+; RV32I-NEXT:    li a1, 0
+; RV32I-NEXT:    ret
+  %r = and i64 %a, 5
+  ret i64 %r
+}
+
+define i64 @and_i64_imm_neg(i64 %a) {
+; XCVEALU-LABEL: and_i64_imm_neg:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    andi a0, a0, -5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_imm_neg:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    andi a0, a0, -5
+; RV32I-NEXT:    ret
+  %r = and i64 %a, -5
+  ret i64 %r
+}
+
+define i64 @and_i64_imm_out(i64 %a) {
+; XCVEALU-LABEL: and_i64_imm_out:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    andi a0, a0, 16
+; XCVEALU-NEXT:    li a1, 0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_imm_out:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    andi a0, a0, 16
+; RV32I-NEXT:    li a1, 0
+; RV32I-NEXT:    ret
+  %r = and i64 %a, 16
+  ret i64 %r
+}
+
+; The known bits of the pair survive the node: (a & 15) * b stays mul+mulhu.
+define i64 @and_i64_imm_mul(i64 %a, i32 %b) {
+; XCVEALU-LABEL: and_i64_imm_mul:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.andi.d a4, a0, 15
+; XCVEALU-NEXT:    mul a0, a4, a2
+; XCVEALU-NEXT:    mulhu a1, a4, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: and_i64_imm_mul:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    andi a1, a0, 15
+; RV32I-NEXT:    mul a0, a1, a2
+; RV32I-NEXT:    mulhu a1, a1, a2
+; RV32I-NEXT:    ret
+  %m = and i64 %a, 15
+  %e = zext i32 %b to i64
+  %r = mul i64 %m, %e
+  ret i64 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)
