@@ -15682,16 +15682,16 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
 
     // With a constant operand the default expansion is usually better: each
     // half folds with its half of the constant, nothing has to be
-    // materialised. The immediate form (cv.xori.d) wins only when the
-    // constant fits its 5-bit signed immediate and the default expansion
-    // touches both words: a negative constant for xor (the high word gets
-    // inverted). The node then carries the constant pair, Select picks the
-    // immediate form.
+    // materialised. The immediate forms (cv.xori.d, cv.ori.d) win only when
+    // the constant fits their 5-bit signed immediate and the default
+    // expansion touches both words: a negative constant for xor and or (the
+    // high word gets inverted, or set to all ones). The node then carries
+    // the constant pair, Select picks the immediate form.
     if (isa<ConstantSDNode>(N->getOperand(0)))
       break;
     if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
       int64_t Imm = C->getSExtValue();
-      if (N->getOpcode() != ISD::XOR || !isInt<5>(Imm) || Imm >= 0)
+      if (N->getOpcode() == ISD::AND || !isInt<5>(Imm) || Imm >= 0)
         break;
     }
 

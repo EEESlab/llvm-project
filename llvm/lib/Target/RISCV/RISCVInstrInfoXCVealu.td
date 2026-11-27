@@ -177,6 +177,8 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
                   Sched<[]>;
   def CV_XORI_D : CVInstEaluRI<0b0010000, 0b100, "cv.xori.d",
                                opcode=OPC_OP_IMM_32, ImmTy=simm5>, Sched<[]>;
+  def CV_ORI_D : CVInstEaluRI<0b0010000, 0b110, "cv.ori.d",
+                              opcode=OPC_OP_IMM_32, ImmTy=simm5>, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -200,8 +202,9 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
 // A shift by a constant below 32 is selected to CV_SLLI_D/CV_SRLI_D/CV_SRAI_D
 // from the same SLLD/SRLD/SRAD node (the constant is the low word of the
-// amount pair), an add/xor of a constant in [-16, 15] to CV_ADDI_D/CV_XORI_D
-// from the ADDD/XORD node (the constant is the pair itself).
+// amount pair), an add/xor/or of a constant in [-16, 15] to CV_ADDI_D/
+// CV_XORI_D/CV_ORI_D from the ADDD/XORD/ORD node (the constant is the pair
+// itself).
 // CV_EXTWS_D and CV_EXTWZ_D have no selection: the default expansion of a
 // 64-bit extension of a word is already one instruction (the high word is a
 // srai, or zero).

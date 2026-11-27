@@ -2570,17 +2570,30 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       // the two 32-bit values.
       unsigned Opc = Opcode == RISCVISD::WADDAU ? RISCV::WADDAU : RISCV::WSUBAU;
       New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped, Op0, Op1Lo, Op1Hi);
-    } else if ((Opcode == RISCVISD::ADDD || Opcode == RISCVISD::XORD) &&
+    } else if ((Opcode == RISCVISD::ADDD || Opcode == RISCVISD::XORD ||
+                Opcode == RISCVISD::ORD) &&
                Subtarget->hasVendorXCVealu() && isa<ConstantSDNode>(Op1Lo) &&
                isa<ConstantSDNode>(Op1Hi) &&
                isInt<5>(cast<ConstantSDNode>(Op1Lo)->getSExtValue()) &&
                cast<ConstantSDNode>(Op1Hi)->getSExtValue() ==
                    (cast<ConstantSDNode>(Op1Lo)->getSExtValue() < 0 ? -1 : 0)) {
-      // An add/xor of a constant the 5-bit signed immediate holds:
-      // cv.addi.d, cv.xori.d. The constant is a pair: its low word in
-      // [-16, 15] and its high word the sign of the low one.
-      unsigned Opc =
-          Opcode == RISCVISD::ADDD ? RISCV::CV_ADDI_D : RISCV::CV_XORI_D;
+      // An add/xor/or of a constant the 5-bit signed immediate holds:
+      // cv.addi.d, cv.xori.d, cv.ori.d. The constant is a pair: its low word
+      // in [-16, 15] and its high word the sign of the low one.
+      unsigned Opc;
+      switch (Opcode) {
+      default:
+        llvm_unreachable("Unexpected opcode");
+      case RISCVISD::ADDD:
+        Opc = RISCV::CV_ADDI_D;
+        break;
+      case RISCVISD::XORD:
+        Opc = RISCV::CV_XORI_D;
+        break;
+      case RISCVISD::ORD:
+        Opc = RISCV::CV_ORI_D;
+        break;
+      }
       New = CurDAG->getMachineNode(
           Opc, DL, MVT::Untyped, Op0,
           CurDAG->getSignedTargetConstant(

@@ -1854,4 +1854,51 @@ define i64 @xor_i64_imm_out(i64 %a) {
   ret i64 %r
 }
 
+; C: a | -5 (both words change: the immediate form), a | 5 (only the low
+; word: the default ori), a | -17 (outside the immediate).
+define i64 @or_i64_imm_neg(i64 %a) {
+; XCVEALU-LABEL: or_i64_imm_neg:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.ori.d a0, a0, -5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64_imm_neg:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    ori a0, a0, -5
+; RV32I-NEXT:    li a1, -1
+; RV32I-NEXT:    ret
+  %r = or i64 %a, -5
+  ret i64 %r
+}
+
+define i64 @or_i64_imm_pos(i64 %a) {
+; XCVEALU-LABEL: or_i64_imm_pos:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    ori a0, a0, 5
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64_imm_pos:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    ori a0, a0, 5
+; RV32I-NEXT:    ret
+  %r = or i64 %a, 5
+  ret i64 %r
+}
+
+define i64 @or_i64_imm_out(i64 %a) {
+; XCVEALU-LABEL: or_i64_imm_out:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    ori a0, a0, -17
+; XCVEALU-NEXT:    li a1, -1
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: or_i64_imm_out:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    ori a0, a0, -17
+; RV32I-NEXT:    li a1, -1
+; RV32I-NEXT:    ret
+  %r = or i64 %a, -17
+  ret i64 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)

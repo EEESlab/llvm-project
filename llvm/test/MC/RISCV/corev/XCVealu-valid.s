@@ -628,3 +628,23 @@ cv.xori.d t3, t3, 15
 # CHECK-INSTR: cv.xori.d t3, t3, 15
 # CHECK-ENCODING: [0x1b,0x4e,0xfe,0x20]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.ori.d a0, a2, 5
+# CHECK-INSTR: cv.ori.d a0, a2, 5
+# CHECK-ENCODING: [0x1b,0x65,0x56,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.ori.d sp, tp, 5
+# CHECK-INSTR: cv.ori.d sp, tp, 5
+# CHECK-ENCODING: [0x1b,0x61,0x52,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.ori.d t5, zero, -16
+# CHECK-INSTR: cv.ori.d t5, zero, -16
+# CHECK-ENCODING: [0x1b,0x6f,0x00,0x21]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.ori.d t3, t3, 15
+# CHECK-INSTR: cv.ori.d t3, t3, 15
+# CHECK-ENCODING: [0x1b,0x6e,0xfe,0x20]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
