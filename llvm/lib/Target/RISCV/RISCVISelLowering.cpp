@@ -20412,6 +20412,7 @@ static SDValue performVFMADD_VLCombine(SDNode *N,
 }
 
 static SDValue performSRACombine(SDNode *N, SelectionDAG &DAG,
+                                 TargetLowering::DAGCombinerInfo &DCI,
                                  const RISCVSubtarget &Subtarget) {
   assert(N->getOpcode() == ISD::SRA && "Unexpected opcode");
 
@@ -20425,6 +20426,26 @@ static SDValue performSRACombine(SDNode *N, SelectionDAG &DAG,
   uint64_t ShAmt = N->getConstantOperandVal(1);
 
   SDValue N0 = N->getOperand(0);
+
+  // Combine (sra (sext_inreg X, i16), 31) for RV32+XCVealu: the type legalizer
+  // splits a 64-bit sign extension of a halfword into (sext_inreg X, i16) as
+  // the low word and its (sra lo, 31) as the high word. The pair is what
+  // cv.exths.d writes: the sext_inreg becomes the low result of the two-result
+  // RISCVISD::EXTHSD node and the sra its high result. Done here, after the
+  // type legalizer, and not in ReplaceNodeResults, so the expansions that look
+  // at the sign bits of the i64 operand (a 64-bit multiply, which becomes
+  // mul+mulh from two sign-extended words) still see the sext_inreg.
+  if (!Subtarget.is64Bit() && Subtarget.hasVendorXCVealu() && ShAmt == 31 &&
+      N0.getOpcode() == ISD::SIGN_EXTEND_INREG &&
+      cast<VTSDNode>(N0.getOperand(1))->getVT() == MVT::i16) {
+    SDLoc DL(N);
+    SDValue Res = DAG.getNode(RISCVISD::EXTHSD, DL,
+                              DAG.getVTList(MVT::i32, MVT::i32), N0.getOperand(0));
+    // The low word replaces the sext_inreg (and all its uses), the high word
+    // replaces this sra.
+    DCI.CombineTo(N0.getNode(), Res);
+    return Res.getValue(1);
+  }
 
   // Combine (sra (sext_inreg (shl X, C1), iX), C2) ->
   // (sra (shl X, C1+(XLen-iX)), C2+(XLen-iX)) so it gets selected as SLLI+SRAI.
@@ -23006,7 +23027,7 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
     break;
   }
   case ISD::SRA:
-    if (SDValue V = performSRACombine(N, DAG, Subtarget))
+    if (SDValue V = performSRACombine(N, DAG, DCI, Subtarget))
       return V;
     [[fallthrough]];
   case ISD::SRL:
@@ -24138,6 +24159,9 @@ unsigned RISCVTargetLowering::ComputeNumSignBitsForTargetNode(
   switch (Op.getOpcode()) {
   default:
     break;
+  case RISCVISD::EXTHSD:
+    // The low word is a sign-extended halfword, the high word its sign.
+    return Op.getResNo() == 0 ? 17 : 32;
   case RISCVISD::SELECT_CC: {
     unsigned Tmp =
         DAG.ComputeNumSignBits(Op.getOperand(3), DemandedElts, Depth + 1);

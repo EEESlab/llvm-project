@@ -1395,4 +1395,115 @@ define i32 @ctpop_i64_i32(i64 %a) {
   ret i32 %r
 }
 
+; C: (long long)(short)a.
+define i64 @sext_i16_i64(i32 %a) {
+; XCVEALU-LABEL: sext_i16_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.exths.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i16_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a1, a0, 16
+; RV32I-NEXT:    srai a0, a1, 16
+; RV32I-NEXT:    srai a1, a1, 31
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i16
+  %r = sext i16 %t to i64
+  ret i64 %r
+}
+
+define i64 @sext_i16_i64_add(i32 %a, i64 %b) {
+; XCVEALU-LABEL: sext_i16_i64_add:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    mv a3, a2
+; XCVEALU-NEXT:    cv.exths.d a4, a0
+; XCVEALU-NEXT:    mv a2, a1
+; XCVEALU-NEXT:    cv.add.d a0, a4, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i16_i64_add:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a0, a0, 16
+; RV32I-NEXT:    srai a3, a0, 16
+; RV32I-NEXT:    srai a4, a0, 31
+; RV32I-NEXT:    add a0, a3, a1
+; RV32I-NEXT:    add a1, a4, a2
+; RV32I-NEXT:    sltu a2, a0, a3
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i16
+  %e = sext i16 %t to i64
+  %r = add i64 %e, %b
+  ret i64 %r
+}
+
+; The multiply of two sign-extended halfwords stays mul+mulh: the combine
+; runs after the type legalizer has expanded the multiply.
+define i64 @sext_i16_i64_mul(i32 %a, i32 %b) {
+; XCVEALU-LABEL: sext_i16_i64_mul:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    addi sp, sp, -16
+; XCVEALU-NEXT:    .cfi_def_cfa_offset 16
+; XCVEALU-NEXT:    sw ra, 12(sp) # 4-byte Folded Spill
+; XCVEALU-NEXT:    .cfi_offset ra, -4
+; XCVEALU-NEXT:    mv a2, a1
+; XCVEALU-NEXT:    cv.exths.d a0, a0
+; XCVEALU-NEXT:    cv.exths.d a2, a2
+; XCVEALU-NEXT:    call __muldi3
+; XCVEALU-NEXT:    li a2, 32
+; XCVEALU-NEXT:    li a3, 0
+; XCVEALU-NEXT:    cv.srl.d a2, a0, a2
+; XCVEALU-NEXT:    mv a1, a2
+; XCVEALU-NEXT:    lw ra, 12(sp) # 4-byte Folded Reload
+; XCVEALU-NEXT:    .cfi_restore ra
+; XCVEALU-NEXT:    addi sp, sp, 16
+; XCVEALU-NEXT:    .cfi_def_cfa_offset 0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i16_i64_mul:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    addi sp, sp, -16
+; RV32I-NEXT:    .cfi_def_cfa_offset 16
+; RV32I-NEXT:    sw ra, 12(sp) # 4-byte Folded Spill
+; RV32I-NEXT:    .cfi_offset ra, -4
+; RV32I-NEXT:    slli a2, a0, 16
+; RV32I-NEXT:    slli a3, a1, 16
+; RV32I-NEXT:    srai a0, a2, 16
+; RV32I-NEXT:    srai a1, a2, 31
+; RV32I-NEXT:    srai a2, a3, 16
+; RV32I-NEXT:    srai a3, a3, 31
+; RV32I-NEXT:    call __muldi3
+; RV32I-NEXT:    lw ra, 12(sp) # 4-byte Folded Reload
+; RV32I-NEXT:    .cfi_restore ra
+; RV32I-NEXT:    addi sp, sp, 16
+; RV32I-NEXT:    .cfi_def_cfa_offset 0
+; RV32I-NEXT:    ret
+  %ta = trunc i32 %a to i16
+  %ea = sext i16 %ta to i64
+  %tb = trunc i32 %b to i16
+  %eb = sext i16 %tb to i64
+  %r = mul i64 %ea, %eb
+  ret i64 %r
+}
+
+; Only the low word is used: no pair, the default expansion.
+define i32 @sext_i16_i64_i32(i32 %a) {
+; XCVEALU-LABEL: sext_i16_i64_i32:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    slli a0, a0, 16
+; XCVEALU-NEXT:    srai a0, a0, 16
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: sext_i16_i64_i32:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    slli a0, a0, 16
+; RV32I-NEXT:    srai a0, a0, 16
+; RV32I-NEXT:    ret
+  %t = trunc i32 %a to i16
+  %e = sext i16 %t to i64
+  %r = trunc i64 %e to i32
+  ret i32 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)

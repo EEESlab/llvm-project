@@ -61,6 +61,13 @@ def riscv_absd : RVSDNode<"ABSD", SDTIntBinHiLoOp>;
 // two-input integer profile.
 def riscv_cntd : RVSDNode<"CNTD", SDTIntBinOp>;
 
+// (lo, hi) = ext(rs1): one pair from one 32-bit register, the halfword (or
+// byte) in it extended to 64 bits.
+def SDT_RISCVIntExtOpD : SDTypeProfile<2, 1, [SDTCisVT<0, i32>,
+                                              SDTCisSameAs<0, 1>,
+                                              SDTCisSameAs<0, 2>]>;
+def riscv_exthsd : RVSDNode<"EXTHSD", SDT_RISCVIntExtOpD>;
+
 // rd = (lo1, hi1) cmp (lo2, hi2): one 32-bit result from two pairs.
 def SDT_RISCVIntCmpOpD : SDTypeProfile<1, 4, [SDTCisVT<0, i32>,
                                               SDTCisVT<1, i32>,
@@ -89,11 +96,12 @@ class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
   let isCommutable = Commutable;
 }
 
-// rd = op(rs1(pair)): the R-type format of CVInstAluR, rs2 unused. rd is a
-// pair, or a GPR for the population count.
+// rd = op(rs1): the R-type format of CVInstAluR, rs2 unused. rd is a pair,
+// or a GPR for the population count; rs1 is a pair, or a GPR for the
+// extensions.
 class CVInstEaluR<bits<7> funct7, bits<3> funct3, string opcodestr,
-                  DAGOperand Rd = GPRPairRV32>
-    : RVInstR<funct7, funct3, OPC_OP, (outs Rd:$rd), (ins GPRPairRV32:$rs1),
+                  DAGOperand Rd = GPRPairRV32, DAGOperand Rs1 = GPRPairRV32>
+    : RVInstR<funct7, funct3, OPC_OP, (outs Rd:$rd), (ins Rs1:$rs1),
               opcodestr, "$rd, $rs1"> {
   let rs2 = 0b00000;
 }
@@ -135,6 +143,8 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_SLETU_D : CVInstEaluRR<0b0011010, 0b011, "cv.sletu.d", Rd=GPR>,
                    Sched<[]>;
   def CV_CNT_D : CVInstEaluR<0b0011010, 0b001, "cv.cnt.d", Rd=GPR>, Sched<[]>;
+  def CV_EXTHS_D : CVInstEaluR<0b0110010, 0b000, "cv.exths.d", Rs1=GPR>,
+                   Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -143,12 +153,13 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 
 // A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra/abs is
 // legalised to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/
-// SMAXD/UMAXD/SLLD/SRLD/SRAD/ABSD node and a 64-bit population count to the
-// one-result RISCVISD::CNTD node (RISCVISelLowering.cpp, ReplaceNodeResults),
-// a 64-bit compare to the one-result RISCVISD::SLTD/SLTUD/SEQD/SNED/SLETD/
-// SLETUD node (LowerOperation); they are selected to CV_ADD_D/CV_SUB_D/
-// CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/CV_MAXU_D/CV_SLL_D/
-// CV_SRL_D/CV_SRA_D/CV_ABS_D/CV_CNT_D/CV_SLT_D/CV_SLTU_D/CV_SEQ_D/CV_SNE_D/
-// CV_SLET_D/CV_SLETU_D in
+// SMAXD/UMAXD/SLLD/SRLD/SRAD/ABSD node, a 64-bit population count to the
+// one-result RISCVISD::CNTD node, a 64-bit sign extension of a halfword to
+// the two-result RISCVISD::EXTHSD node (RISCVISelLowering.cpp,
+// ReplaceNodeResults), a 64-bit compare to the one-result RISCVISD::SLTD/
+// SLTUD/SEQD/SNED/SLETD/SLETUD node (LowerOperation); they are selected to
+// CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
+// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/CV_ABS_D/CV_CNT_D/CV_EXTHS_D/CV_SLT_D/
+// CV_SLTU_D/CV_SEQ_D/CV_SNE_D/CV_SLET_D/CV_SLETU_D in
 // RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
