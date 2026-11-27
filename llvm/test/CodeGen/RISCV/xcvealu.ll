@@ -992,16 +992,11 @@ f:
   ret i32 0
 }
 
-; Unsigned: keeps the default expansion until cv.sltu.d.
+; Unsigned compares: cv.sltu.d, same scheme.
 define i32 @ult_i64(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: ult_i64:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    beq a1, a3, .LBB41_2
-; XCVEALU-NEXT:  # %bb.1:
-; XCVEALU-NEXT:    sltu a0, a1, a3
-; XCVEALU-NEXT:    ret
-; XCVEALU-NEXT:  .LBB41_2:
-; XCVEALU-NEXT:    sltu a0, a0, a2
+; XCVEALU-NEXT:    cv.sltu.d a0, a0, a2
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: ult_i64:
@@ -1014,6 +1009,106 @@ define i32 @ult_i64(i64 %a, i64 %b) {
 ; RV32I-NEXT:    sltu a0, a0, a2
 ; RV32I-NEXT:    ret
   %c = icmp ult i64 %a, %b
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @ugt_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: ugt_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sltu.d a0, a2, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ugt_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB42_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    sltu a0, a3, a1
+; RV32I-NEXT:    ret
+; RV32I-NEXT:  .LBB42_2:
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    ret
+  %c = icmp ugt i64 %a, %b
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @ule_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: ule_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sltu.d a0, a2, a0
+; XCVEALU-NEXT:    xori a0, a0, 1
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ule_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB43_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    sltu a0, a3, a1
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+; RV32I-NEXT:  .LBB43_2:
+; RV32I-NEXT:    sltu a0, a2, a0
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+  %c = icmp ule i64 %a, %b
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @uge_i64_br(i64 %a, i64 %b) {
+; XCVEALU-LABEL: uge_i64_br:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sltu.d a0, a0, a2
+; XCVEALU-NEXT:    bnez a0, .LBB44_2
+; XCVEALU-NEXT:  # %bb.1: # %t
+; XCVEALU-NEXT:    li a0, 1
+; XCVEALU-NEXT:    ret
+; XCVEALU-NEXT:  .LBB44_2: # %f
+; XCVEALU-NEXT:    li a0, 0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: uge_i64_br:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB44_3
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    sltu a0, a1, a3
+; RV32I-NEXT:    beqz a0, .LBB44_4
+; RV32I-NEXT:  .LBB44_2: # %f
+; RV32I-NEXT:    li a0, 0
+; RV32I-NEXT:    ret
+; RV32I-NEXT:  .LBB44_3:
+; RV32I-NEXT:    sltu a0, a0, a2
+; RV32I-NEXT:    bnez a0, .LBB44_2
+; RV32I-NEXT:  .LBB44_4: # %t
+; RV32I-NEXT:    li a0, 1
+; RV32I-NEXT:    ret
+  %c = icmp uge i64 %a, %b
+  br i1 %c, label %t, label %f
+t:
+  ret i32 1
+f:
+  ret i32 0
+}
+
+; Equality: keeps the default expansion until cv.seq.d/cv.sne.d.
+define i32 @eq_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: eq_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    xor a1, a1, a3
+; XCVEALU-NEXT:    xor a0, a0, a2
+; XCVEALU-NEXT:    or a0, a0, a1
+; XCVEALU-NEXT:    seqz a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: eq_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    xor a1, a1, a3
+; RV32I-NEXT:    xor a0, a0, a2
+; RV32I-NEXT:    or a0, a0, a1
+; RV32I-NEXT:    seqz a0, a0
+; RV32I-NEXT:    ret
+  %c = icmp eq i64 %a, %b
   %r = zext i1 %c to i32
   ret i32 %r
 }

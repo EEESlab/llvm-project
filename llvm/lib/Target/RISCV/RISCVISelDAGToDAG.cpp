@@ -2627,15 +2627,16 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
     CurDAG->RemoveDeadNode(Node);
     return;
   }
-  case RISCVISD::SLTD: {
+  case RISCVISD::SLTD:
+  case RISCVISD::SLTUD: {
     // Two pairs in, one 32-bit result out.
     assert(!Subtarget->is64Bit() && "Unexpected opcode");
     SDValue Op0 = buildGPRPair(CurDAG, DL, MVT::Untyped, Node->getOperand(0),
                                Node->getOperand(1));
     SDValue Op1 = buildGPRPair(CurDAG, DL, MVT::Untyped, Node->getOperand(2),
                                Node->getOperand(3));
-    ReplaceNode(Node,
-                CurDAG->getMachineNode(RISCV::CV_SLT_D, DL, MVT::i32, Op0, Op1));
+    unsigned Opc = Opcode == RISCVISD::SLTD ? RISCV::CV_SLT_D : RISCV::CV_SLTU_D;
+    ReplaceNode(Node, CurDAG->getMachineNode(Opc, DL, MVT::i32, Op0, Op1));
     return;
   }
   case RISCVISD::ABSD: {

@@ -213,3 +213,18 @@ cv.slt.d a0, a2
 
 cv.slt.d a0, a2, a4, a6
 # CHECK-ERROR: :[[@LINE-1]]:22: error: invalid operand for instruction
+
+cv.sltu.d a0, a3, a4
+# CHECK-ERROR: :[[@LINE-1]]:15: error: register must be even
+
+cv.sltu.d a0, a2, a5
+# CHECK-ERROR: :[[@LINE-1]]:19: error: register must be even
+
+cv.sltu.d a0, a2, 0
+# CHECK-ERROR: :[[@LINE-1]]:19: error: invalid operand for instruction
+
+cv.sltu.d a0, a2
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.sltu.d a0, a2, a4, a6
+# CHECK-ERROR: :[[@LINE-1]]:23: error: invalid operand for instruction
