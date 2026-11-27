@@ -1287,3 +1287,112 @@ define i32 @uge_i64(i64 %a, i64 %b) {
   %r = zext i1 %c to i32
   ret i32 %r
 }
+
+; Class D1: a 32-bit count from one pair.
+define i64 @ctpop_i64(i64 %a) {
+; XCVEALU-LABEL: ctpop_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    mv a3, a1
+; XCVEALU-NEXT:    li a1, 0
+; XCVEALU-NEXT:    mv a2, a0
+; XCVEALU-NEXT:    cv.cnt.d a0, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ctpop_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    lui a2, 349525
+; RV32I-NEXT:    srli a3, a1, 1
+; RV32I-NEXT:    addi a2, a2, 1365
+; RV32I-NEXT:    and a3, a3, a2
+; RV32I-NEXT:    lui a4, 209715
+; RV32I-NEXT:    sub a1, a1, a3
+; RV32I-NEXT:    addi a3, a4, 819
+; RV32I-NEXT:    and a4, a1, a3
+; RV32I-NEXT:    srli a1, a1, 2
+; RV32I-NEXT:    srli a5, a0, 1
+; RV32I-NEXT:    and a1, a1, a3
+; RV32I-NEXT:    and a2, a5, a2
+; RV32I-NEXT:    add a1, a4, a1
+; RV32I-NEXT:    sub a0, a0, a2
+; RV32I-NEXT:    srli a2, a1, 4
+; RV32I-NEXT:    srli a4, a0, 2
+; RV32I-NEXT:    and a0, a0, a3
+; RV32I-NEXT:    and a3, a4, a3
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    lui a2, 61681
+; RV32I-NEXT:    srli a3, a0, 4
+; RV32I-NEXT:    addi a2, a2, -241
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    and a1, a1, a2
+; RV32I-NEXT:    and a0, a0, a2
+; RV32I-NEXT:    slli a2, a1, 8
+; RV32I-NEXT:    slli a3, a0, 8
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    slli a2, a1, 16
+; RV32I-NEXT:    slli a3, a0, 16
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    srli a1, a1, 24
+; RV32I-NEXT:    srli a0, a0, 24
+; RV32I-NEXT:    add a0, a0, a1
+; RV32I-NEXT:    li a1, 0
+; RV32I-NEXT:    ret
+  %r = call i64 @llvm.ctpop.i64(i64 %a)
+  ret i64 %r
+}
+
+; C: __builtin_popcountll returns an int.
+define i32 @ctpop_i64_i32(i64 %a) {
+; XCVEALU-LABEL: ctpop_i64_i32:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.cnt.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: ctpop_i64_i32:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    lui a2, 349525
+; RV32I-NEXT:    srli a3, a1, 1
+; RV32I-NEXT:    addi a2, a2, 1365
+; RV32I-NEXT:    and a3, a3, a2
+; RV32I-NEXT:    lui a4, 209715
+; RV32I-NEXT:    sub a1, a1, a3
+; RV32I-NEXT:    addi a3, a4, 819
+; RV32I-NEXT:    and a4, a1, a3
+; RV32I-NEXT:    srli a1, a1, 2
+; RV32I-NEXT:    srli a5, a0, 1
+; RV32I-NEXT:    and a1, a1, a3
+; RV32I-NEXT:    and a2, a5, a2
+; RV32I-NEXT:    add a1, a4, a1
+; RV32I-NEXT:    sub a0, a0, a2
+; RV32I-NEXT:    srli a2, a1, 4
+; RV32I-NEXT:    srli a4, a0, 2
+; RV32I-NEXT:    and a0, a0, a3
+; RV32I-NEXT:    and a3, a4, a3
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    lui a2, 61681
+; RV32I-NEXT:    srli a3, a0, 4
+; RV32I-NEXT:    addi a2, a2, -241
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    and a1, a1, a2
+; RV32I-NEXT:    and a0, a0, a2
+; RV32I-NEXT:    slli a2, a1, 8
+; RV32I-NEXT:    slli a3, a0, 8
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    slli a2, a1, 16
+; RV32I-NEXT:    slli a3, a0, 16
+; RV32I-NEXT:    add a1, a1, a2
+; RV32I-NEXT:    add a0, a0, a3
+; RV32I-NEXT:    srli a1, a1, 24
+; RV32I-NEXT:    srli a0, a0, 24
+; RV32I-NEXT:    add a0, a0, a1
+; RV32I-NEXT:    ret
+  %c = call i64 @llvm.ctpop.i64(i64 %a)
+  %r = trunc i64 %c to i32
+  ret i32 %r
+}
+
+declare i64 @llvm.ctpop.i64(i64)

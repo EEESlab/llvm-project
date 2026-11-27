@@ -483,6 +483,9 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
       setOperationAction(ISD::CTPOP, MVT::i32, Expand);
     setOperationAction(ISD::CTPOP, MVT::i64, Expand);
   }
+  // cv.cnt.d: after the Expand above, which would override it.
+  if (Subtarget.hasVendorXCVealu() && !Subtarget.is64Bit())
+    setOperationAction(ISD::CTPOP, MVT::i64, Custom);
 
   if (Subtarget.hasCLZLike()) {
     // We need the custom lowering to make sure that the resulting sequence
@@ -16054,9 +16057,10 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     Results.push_back(expandAddSubSat(N, DAG));
     return;
   }
+  case ISD::CTPOP:
   case ISD::ABS:
   case ISD::ABS_MIN_POISON: {
-    if (N->getValueType(0) == MVT::i64) {
+    if (N->getValueType(0) == MVT::i64 && N->getOpcode() != ISD::CTPOP) {
       assert(!Subtarget.is64Bit() && Subtarget.hasVendorXCVealu() &&
              "Unexpected custom legalisation");
 
@@ -16067,6 +16071,18 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
                                 DAG.getVTList(MVT::i32, MVT::i32), Lo, Hi);
       Results.push_back(
           DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1)));
+      return;
+    }
+    if (N->getValueType(0) == MVT::i64 && N->getOpcode() == ISD::CTPOP) {
+      assert(!Subtarget.is64Bit() && Subtarget.hasVendorXCVealu() &&
+             "Unexpected custom legalisation");
+
+      // Expand to CNTD: a 32-bit count, zero in the high word.
+      auto [Lo, Hi] =
+          DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
+      SDValue Res = DAG.getNode(RISCVISD::CNTD, DL, MVT::i32, Lo, Hi);
+      Results.push_back(DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res,
+                                    DAG.getConstant(0, DL, MVT::i32)));
       return;
     }
 
@@ -23910,6 +23926,10 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   case RISCVISD::SLETUD:
     // The compares on register pairs write 0 or 1.
     Known.Zero.setBitsFrom(1);
+    break;
+  case RISCVISD::CNTD:
+    // The population count of a pair is at most 64.
+    Known.Zero.setBitsFrom(7);
     break;
   case RISCVISD::SELECT_CC: {
     Known = DAG.computeKnownBits(Op.getOperand(4), Depth + 1);

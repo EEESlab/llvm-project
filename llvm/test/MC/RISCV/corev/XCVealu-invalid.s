@@ -288,3 +288,15 @@ cv.sletu.d a0, a2
 
 cv.sletu.d a0, a2, a4, a6
 # CHECK-ERROR: :[[@LINE-1]]:24: error: invalid operand for instruction
+
+cv.cnt.d a0, a3
+# CHECK-ERROR: :[[@LINE-1]]:14: error: register must be even
+
+cv.cnt.d a0, 0
+# CHECK-ERROR: :[[@LINE-1]]:14: error: invalid operand for instruction
+
+cv.cnt.d a0
+# CHECK-ERROR: :[[@LINE-1]]:1: error: too few operands for instruction
+
+cv.cnt.d a0, a2, a4
+# CHECK-ERROR: :[[@LINE-1]]:18: error: invalid operand for instruction
