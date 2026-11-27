@@ -9245,16 +9245,26 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
       assert(Subtarget.hasVendorXCVealu() && "Unexpected custom lowering");
       // A 64-bit compare on register pairs: cv.slt.d/cv.sltu.d for a
       // less-than, the operands swapped for greater-than, the result inverted
-      // for the or-equal forms. Anything else keeps the default expansion.
+      // for the or-equal forms; cv.seq.d for equality, inverted for not-equal.
+      // A compare with zero keeps the default expansion, which is shorter
+      // (no pair to materialise).
       SDLoc DL(Op);
       MVT VT = Op.getSimpleValueType();
       SDValue LHS = Op.getOperand(0);
       SDValue RHS = Op.getOperand(1);
       ISD::CondCode CCVal = cast<CondCodeSDNode>(Op.getOperand(2))->get();
       bool Invert = false;
+      unsigned Opc;
       switch (CCVal) {
       default:
         return SDValue();
+      case ISD::SETEQ:
+      case ISD::SETNE:
+        if (isNullConstant(LHS) || isNullConstant(RHS))
+          return SDValue();
+        Opc = RISCVISD::SEQD;
+        Invert = CCVal == ISD::SETNE;
+        break;
       case ISD::SETLT:
       case ISD::SETULT:
         break;
@@ -9272,8 +9282,8 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
         Invert = true;
         break;
       }
-      unsigned Opc = ISD::isSignedIntSetCC(CCVal) ? RISCVISD::SLTD
-                                                  : RISCVISD::SLTUD;
+      if (!ISD::isIntEqualitySetCC(CCVal))
+        Opc = ISD::isSignedIntSetCC(CCVal) ? RISCVISD::SLTD : RISCVISD::SLTUD;
       auto [LHSLo, LHSHi] = DAG.SplitScalar(LHS, DL, MVT::i32, MVT::i32);
       auto [RHSLo, RHSHi] = DAG.SplitScalar(RHS, DL, MVT::i32, MVT::i32);
       SDValue Res = DAG.getNode(Opc, DL, VT, LHSLo, LHSHi, RHSLo, RHSHi);
@@ -23889,6 +23899,7 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   default: break;
   case RISCVISD::SLTD:
   case RISCVISD::SLTUD:
+  case RISCVISD::SEQD:
     // The compares on register pairs write 0 or 1.
     Known.Zero.setBitsFrom(1);
     break;

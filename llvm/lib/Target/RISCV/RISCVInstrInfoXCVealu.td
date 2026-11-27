@@ -65,6 +65,7 @@ def SDT_RISCVIntCmpOpD : SDTypeProfile<1, 4, [SDTCisVT<0, i32>,
                                               SDTCisSameAs<1, 4>]>;
 def riscv_sltd : RVSDNode<"SLTD", SDT_RISCVIntCmpOpD>;
 def riscv_sltud : RVSDNode<"SLTUD", SDT_RISCVIntCmpOpD>;
+def riscv_seqd : RVSDNode<"SEQD", SDT_RISCVIntCmpOpD>;
 
 //===----------------------------------------------------------------------===//
 // Instruction class templates
@@ -118,6 +119,7 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_SLT_D : CVInstEaluRR<0b0011000, 0b010, "cv.slt.d", Rd=GPR>, Sched<[]>;
   def CV_SLTU_D : CVInstEaluRR<0b0011000, 0b011, "cv.sltu.d", Rd=GPR>,
                   Sched<[]>;
+  def CV_SEQ_D : CVInstEaluRR<0b0011011, 0b010, "cv.seq.d", Rd=GPR>, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -127,9 +129,9 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra/abs is
 // legalised to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/
 // SMAXD/UMAXD/SLLD/SRLD/SRAD/ABSD node (RISCVISelLowering.cpp,
-// ReplaceNodeResults), and a 64-bit less-than compare to the one-result
-// RISCVISD::SLTD/SLTUD node (LowerOperation); they are selected to
+// ReplaceNodeResults), and a 64-bit compare to the one-result
+// RISCVISD::SLTD/SLTUD/SEQD node (LowerOperation); they are selected to
 // CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
-// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/CV_ABS_D/CV_SLT_D/CV_SLTU_D in
+// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/CV_ABS_D/CV_SLT_D/CV_SLTU_D/CV_SEQ_D in
 // RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
 // an i64 is not a legal type on RV32, so no tablegen pattern can match it.
