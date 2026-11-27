@@ -1661,4 +1661,82 @@ define i32 @sext_i8_i64_i32(i32 %a) {
   ret i32 %r
 }
 
+; C: (unsigned long long)(unsigned char)a.
+define i64 @zext_i8_i64(i32 %a) {
+; XCVEALU-LABEL: zext_i8_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.extbz.d a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: zext_i8_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    zext.b a0, a0
+; RV32I-NEXT:    li a1, 0
+; RV32I-NEXT:    ret
+  %m = and i32 %a, 255
+  %r = zext i32 %m to i64
+  ret i64 %r
+}
+
+define i64 @zext_i8_i64_add(i32 %a, i64 %b) {
+; XCVEALU-LABEL: zext_i8_i64_add:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    mv a3, a2
+; XCVEALU-NEXT:    cv.extbz.d a4, a0
+; XCVEALU-NEXT:    mv a2, a1
+; XCVEALU-NEXT:    cv.add.d a0, a4, a2
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: zext_i8_i64_add:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    zext.b a3, a0
+; RV32I-NEXT:    add a0, a3, a1
+; RV32I-NEXT:    sltu a1, a0, a3
+; RV32I-NEXT:    add a1, a2, a1
+; RV32I-NEXT:    ret
+  %m = and i32 %a, 255
+  %e = zext i32 %m to i64
+  %r = add i64 %e, %b
+  ret i64 %r
+}
+
+; The high word of the pair is known zero: mul+mulhu.
+define i64 @zext_i8_i64_mul(i32 %a, i32 %b) {
+; XCVEALU-LABEL: zext_i8_i64_mul:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.extbz.d a2, a0
+; XCVEALU-NEXT:    mul a0, a2, a1
+; XCVEALU-NEXT:    mulhu a1, a2, a1
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: zext_i8_i64_mul:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    zext.b a2, a0
+; RV32I-NEXT:    mul a0, a2, a1
+; RV32I-NEXT:    mulhu a1, a2, a1
+; RV32I-NEXT:    ret
+  %m = and i32 %a, 255
+  %ea = zext i32 %m to i64
+  %eb = zext i32 %b to i64
+  %r = mul i64 %ea, %eb
+  ret i64 %r
+}
+
+; Only the low word is used: no pair, the default expansion.
+define i32 @zext_i8_i64_i32(i32 %a) {
+; XCVEALU-LABEL: zext_i8_i64_i32:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    zext.b a0, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: zext_i8_i64_i32:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    zext.b a0, a0
+; RV32I-NEXT:    ret
+  %m = and i32 %a, 255
+  %e = zext i32 %m to i64
+  %r = trunc i64 %e to i32
+  ret i32 %r
+}
+
 declare i64 @llvm.ctpop.i64(i64)

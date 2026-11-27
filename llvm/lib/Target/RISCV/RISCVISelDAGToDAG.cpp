@@ -2688,7 +2688,8 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
   }
   case RISCVISD::EXTHSD:
   case RISCVISD::EXTHZD:
-  case RISCVISD::EXTBSD: {
+  case RISCVISD::EXTBSD:
+  case RISCVISD::EXTBZD: {
     // One 32-bit register in, one pair out.
     assert(!Subtarget->is64Bit() && "Unexpected opcode");
     unsigned Opc;
@@ -2703,6 +2704,9 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       break;
     case RISCVISD::EXTBSD:
       Opc = RISCV::CV_EXTBS_D;
+      break;
+    case RISCVISD::EXTBZD:
+      Opc = RISCV::CV_EXTBZ_D;
       break;
     }
     MachineSDNode *New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped,

@@ -16063,16 +16063,19 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
            Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
 
-    // Expand (zext i64 (and X, 0xffff)) to EXTHZD: the instruction masks and
-    // extends in one. Anything else (an operand already zero extended, a
-    // narrower type) keeps the default expansion, a zero in the high word.
+    // Expand (zext i64 (and X, 0xffff/0xff)) to EXTHZD/EXTBZD: the
+    // instruction masks and extends in one. Anything else (an operand already
+    // zero extended, a narrower type) keeps the default expansion, a zero in
+    // the high word.
     SDValue Src = N->getOperand(0);
     if (Src.getValueType() != MVT::i32 || Src.getOpcode() != ISD::AND ||
         !isa<ConstantSDNode>(Src.getOperand(1)) ||
-        Src.getConstantOperandVal(1) != 0xffff)
+        (Src.getConstantOperandVal(1) != 0xffff &&
+         Src.getConstantOperandVal(1) != 0xff))
       break;
-    SDValue Res = DAG.getNode(RISCVISD::EXTHZD, DL,
-                              DAG.getVTList(MVT::i32, MVT::i32),
+    unsigned Opc = Src.getConstantOperandVal(1) == 0xffff ? RISCVISD::EXTHZD
+                                                          : RISCVISD::EXTBZD;
+    SDValue Res = DAG.getNode(Opc, DL, DAG.getVTList(MVT::i32, MVT::i32),
                               Src.getOperand(0));
     Results.push_back(
         DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1)));
@@ -23981,6 +23984,10 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   case RISCVISD::EXTHZD:
     // The low word is a zero-extended halfword, the high word is zero.
     Known.Zero.setBitsFrom(Op.getResNo() == 0 ? 16 : 0);
+    break;
+  case RISCVISD::EXTBZD:
+    // The low word is a zero-extended byte, the high word is zero.
+    Known.Zero.setBitsFrom(Op.getResNo() == 0 ? 8 : 0);
     break;
   case RISCVISD::SELECT_CC: {
     Known = DAG.computeKnownBits(Op.getOperand(4), Depth + 1);

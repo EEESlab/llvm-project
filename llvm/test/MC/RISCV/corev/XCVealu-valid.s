@@ -468,3 +468,23 @@ cv.extbs.d t3, ra
 # CHECK-INSTR: cv.extbs.d t3, ra
 # CHECK-ENCODING: [0x33,0xae,0x00,0x64]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.extbz.d a0, a2
+# CHECK-INSTR: cv.extbz.d a0, a2
+# CHECK-ENCODING: [0x33,0x35,0x06,0x64]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.extbz.d sp, tp
+# CHECK-INSTR: cv.extbz.d sp, tp
+# CHECK-ENCODING: [0x33,0x31,0x02,0x64]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.extbz.d t5, zero
+# CHECK-INSTR: cv.extbz.d t5, zero
+# CHECK-ENCODING: [0x33,0x3f,0x00,0x64]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.extbz.d t3, ra
+# CHECK-INSTR: cv.extbz.d t3, ra
+# CHECK-ENCODING: [0x33,0xbe,0x00,0x64]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
