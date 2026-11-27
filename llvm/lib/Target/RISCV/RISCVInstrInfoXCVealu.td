@@ -57,16 +57,24 @@ def riscv_srad : RVSDNode<"SRAD", SDT_RISCVIntBinOpD>;
 // two-input integer profile (the one of the P extension WADDU/WMULSU nodes).
 def riscv_absd : RVSDNode<"ABSD", SDTIntBinHiLoOp>;
 
+// rd = (lo1, hi1) cmp (lo2, hi2): one 32-bit result from two pairs.
+def SDT_RISCVIntCmpOpD : SDTypeProfile<1, 4, [SDTCisVT<0, i32>,
+                                              SDTCisVT<1, i32>,
+                                              SDTCisSameAs<1, 2>,
+                                              SDTCisSameAs<1, 3>,
+                                              SDTCisSameAs<1, 4>]>;
+def riscv_sltd : RVSDNode<"SLTD", SDT_RISCVIntCmpOpD>;
+
 //===----------------------------------------------------------------------===//
 // Instruction class templates
 //===----------------------------------------------------------------------===//
 
 let hasSideEffects = 0, mayLoad = 0, mayStore = 0 in {
-// rd(pair) = rs1(pair) op rs2(pair): the R-type format of CVInstAluRR, with
-// every operand a register pair.
+// rd = rs1(pair) op rs2(pair): the R-type format of CVInstAluRR, with the
+// sources register pairs. rd is a pair too, or a GPR for the comparisons.
 class CVInstEaluRR<bits<7> funct7, bits<3> funct3, string opcodestr,
-                   bit Commutable = 0>
-    : RVInstR<funct7, funct3, OPC_OP, (outs GPRPairRV32:$rd),
+                   bit Commutable = 0, DAGOperand Rd = GPRPairRV32>
+    : RVInstR<funct7, funct3, OPC_OP, (outs Rd:$rd),
               (ins GPRPairRV32:$rs1, GPRPairRV32:$rs2), opcodestr,
               "$rd, $rs1, $rs2"> {
   let isCommutable = Commutable;
@@ -106,6 +114,7 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
   def CV_SRL_D : CVInstEaluRR<0b0010000, 0b101, "cv.srl.d">, Sched<[]>;
   def CV_SRA_D : CVInstEaluRR<0b0110000, 0b101, "cv.sra.d">, Sched<[]>;
   def CV_ABS_D : CVInstEaluR<0b0010010, 0b000, "cv.abs.d">, Sched<[]>;
+  def CV_SLT_D : CVInstEaluRR<0b0011000, 0b010, "cv.slt.d", Rd=GPR>, Sched<[]>;
 } // Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV"
 
 //===----------------------------------------------------------------------===//
@@ -115,8 +124,9 @@ let Predicates = [HasVendorXCVealu, IsRV32], DecoderNamespace = "XCV" in {
 // A 64-bit add/sub/and/or/xor/smin/umin/smax/umax/shl/srl/sra/abs is
 // legalised to the two-result RISCVISD::ADDD/SUBD/ANDD/ORD/XORD/SMIND/UMIND/
 // SMAXD/UMAXD/SLLD/SRLD/SRAD/ABSD node (RISCVISelLowering.cpp,
-// ReplaceNodeResults) and selected to CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/
-// CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/
-// CV_ABS_D in RISCVISelDAGToDAG.cpp, where the register pair is built with
-// REG_SEQUENCE: an i64 is not a legal type on RV32, so no tablegen pattern can
-// match it.
+// ReplaceNodeResults), and a 64-bit signed less-than compare to the
+// one-result RISCVISD::SLTD node (LowerOperation); they are selected to
+// CV_ADD_D/CV_SUB_D/CV_AND_D/CV_OR_D/CV_XOR_D/CV_MIN_D/CV_MINU_D/CV_MAX_D/
+// CV_MAXU_D/CV_SLL_D/CV_SRL_D/CV_SRA_D/CV_ABS_D/CV_SLT_D in
+// RISCVISelDAGToDAG.cpp, where the register pair is built with REG_SEQUENCE:
+// an i64 is not a legal type on RV32, so no tablegen pattern can match it.

@@ -267,3 +267,24 @@ cv.abs.d t3, t3
 # CHECK-INSTR: cv.abs.d t3, t3
 # CHECK-ENCODING: [0x33,0x0e,0x0e,0x24]
 # CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+# The comparisons write a 32-bit register: rd may be odd.
+cv.slt.d a0, a2, a4
+# CHECK-INSTR: cv.slt.d a0, a2, a4
+# CHECK-ENCODING: [0x33,0x25,0xe6,0x30]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slt.d ra, tp, t1
+# CHECK-INSTR: cv.slt.d ra, tp, t1
+# CHECK-ENCODING: [0xb3,0x20,0x62,0x30]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slt.d t5, zero, s0
+# CHECK-INSTR: cv.slt.d t5, zero, s0
+# CHECK-ENCODING: [0x33,0x2f,0x80,0x30]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}
+
+cv.slt.d t4, t3, t3
+# CHECK-INSTR: cv.slt.d t4, t3, t3
+# CHECK-ENCODING: [0xb3,0x2e,0xce,0x31]
+# CHECK-NO-EXT: instruction requires the following: 'XCVealu' (CORE-V 64-bit ALU Operations){{$}}

@@ -400,6 +400,8 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
                        Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
     setOperationAction({ISD::ABS, ISD::ABS_MIN_POISON}, MVT::i64, Custom);
+    // The compares (cv.slt.d, ...): keyed by the operand type.
+    setOperationAction(ISD::SETCC, MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -9239,6 +9241,41 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
   }
   case ISD::SETCC: {
     MVT OpVT = Op.getOperand(0).getSimpleValueType();
+    if (OpVT == MVT::i64 && !Subtarget.is64Bit()) {
+      assert(Subtarget.hasVendorXCVealu() && "Unexpected custom lowering");
+      // A 64-bit compare on register pairs: cv.slt.d for a signed less-than,
+      // the operands swapped for greater-than, the result inverted for the
+      // or-equal forms. Anything else keeps the default expansion.
+      SDLoc DL(Op);
+      MVT VT = Op.getSimpleValueType();
+      SDValue LHS = Op.getOperand(0);
+      SDValue RHS = Op.getOperand(1);
+      ISD::CondCode CCVal = cast<CondCodeSDNode>(Op.getOperand(2))->get();
+      bool Invert = false;
+      switch (CCVal) {
+      default:
+        return SDValue();
+      case ISD::SETLT:
+        break;
+      case ISD::SETGT:
+        std::swap(LHS, RHS);
+        break;
+      case ISD::SETGE:
+        Invert = true;
+        break;
+      case ISD::SETLE:
+        std::swap(LHS, RHS);
+        Invert = true;
+        break;
+      }
+      auto [LHSLo, LHSHi] = DAG.SplitScalar(LHS, DL, MVT::i32, MVT::i32);
+      auto [RHSLo, RHSHi] = DAG.SplitScalar(RHS, DL, MVT::i32, MVT::i32);
+      SDValue Res =
+          DAG.getNode(RISCVISD::SLTD, DL, VT, LHSLo, LHSHi, RHSLo, RHSHi);
+      if (Invert)
+        Res = DAG.getNode(ISD::XOR, DL, VT, Res, DAG.getConstant(1, DL, VT));
+      return Res;
+    }
     if (OpVT.isScalarInteger()) {
       MVT VT = Op.getSimpleValueType();
       SDValue LHS = Op.getOperand(0);
@@ -23845,6 +23882,10 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   Known.resetAll();
   switch (Opc) {
   default: break;
+  case RISCVISD::SLTD:
+    // The compares on register pairs write 0 or 1.
+    Known.Zero.setBitsFrom(1);
+    break;
   case RISCVISD::SELECT_CC: {
     Known = DAG.computeKnownBits(Op.getOperand(4), Depth + 1);
     // If we don't know any bits, early out.
