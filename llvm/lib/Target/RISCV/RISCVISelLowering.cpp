@@ -9244,17 +9244,15 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
     if (OpVT == MVT::i64 && !Subtarget.is64Bit()) {
       assert(Subtarget.hasVendorXCVealu() && "Unexpected custom lowering");
       // A 64-bit compare on register pairs: cv.slt.d/cv.sltu.d for a
-      // less-than and cv.slet.d for a signed less-or-equal, the operands
-      // swapped for the greater-than forms, the result inverted for the
-      // unsigned or-equal forms; cv.seq.d/cv.sne.d for equality. A compare
-      // with zero keeps the default expansion, which is shorter (no pair to
-      // materialise).
+      // less-than and cv.slet.d/cv.sletu.d for a less-or-equal, the operands
+      // swapped for the greater-than forms; cv.seq.d/cv.sne.d for equality.
+      // A compare with zero keeps the default expansion, which is shorter (no
+      // pair to materialise).
       SDLoc DL(Op);
       MVT VT = Op.getSimpleValueType();
       SDValue LHS = Op.getOperand(0);
       SDValue RHS = Op.getOperand(1);
       ISD::CondCode CCVal = cast<CondCodeSDNode>(Op.getOperand(2))->get();
-      bool Invert = false;
       unsigned Opc;
       switch (CCVal) {
       default:
@@ -9286,22 +9284,17 @@ SDValue RISCVTargetLowering::LowerOperation(SDValue Op,
         std::swap(LHS, RHS);
         Opc = RISCVISD::SLTUD;
         break;
-      case ISD::SETUGE:
-        Opc = RISCVISD::SLTUD;
-        Invert = true;
-        break;
       case ISD::SETULE:
+        Opc = RISCVISD::SLETUD;
+        break;
+      case ISD::SETUGE:
         std::swap(LHS, RHS);
-        Opc = RISCVISD::SLTUD;
-        Invert = true;
+        Opc = RISCVISD::SLETUD;
         break;
       }
       auto [LHSLo, LHSHi] = DAG.SplitScalar(LHS, DL, MVT::i32, MVT::i32);
       auto [RHSLo, RHSHi] = DAG.SplitScalar(RHS, DL, MVT::i32, MVT::i32);
-      SDValue Res = DAG.getNode(Opc, DL, VT, LHSLo, LHSHi, RHSLo, RHSHi);
-      if (Invert)
-        Res = DAG.getNode(ISD::XOR, DL, VT, Res, DAG.getConstant(1, DL, VT));
-      return Res;
+      return DAG.getNode(Opc, DL, VT, LHSLo, LHSHi, RHSLo, RHSHi);
     }
     if (OpVT.isScalarInteger()) {
       MVT VT = Op.getSimpleValueType();
@@ -23914,6 +23907,7 @@ void RISCVTargetLowering::computeKnownBitsForTargetNode(const SDValue Op,
   case RISCVISD::SEQD:
   case RISCVISD::SNED:
   case RISCVISD::SLETD:
+  case RISCVISD::SLETUD:
     // The compares on register pairs write 0 or 1.
     Known.Zero.setBitsFrom(1);
     break;

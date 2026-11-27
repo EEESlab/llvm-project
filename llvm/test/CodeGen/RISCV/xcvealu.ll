@@ -1037,8 +1037,7 @@ define i32 @ugt_i64(i64 %a, i64 %b) {
 define i32 @ule_i64(i64 %a, i64 %b) {
 ; XCVEALU-LABEL: ule_i64:
 ; XCVEALU:       # %bb.0:
-; XCVEALU-NEXT:    cv.sltu.d a0, a2, a0
-; XCVEALU-NEXT:    xori a0, a0, 1
+; XCVEALU-NEXT:    cv.sletu.d a0, a0, a2
 ; XCVEALU-NEXT:    ret
 ;
 ; RV32I-LABEL: ule_i64:
@@ -1263,6 +1262,28 @@ define i32 @sge_i64(i64 %a, i64 %b) {
 ; RV32I-NEXT:    xori a0, a0, 1
 ; RV32I-NEXT:    ret
   %c = icmp sge i64 %a, %b
+  %r = zext i1 %c to i32
+  ret i32 %r
+}
+
+define i32 @uge_i64(i64 %a, i64 %b) {
+; XCVEALU-LABEL: uge_i64:
+; XCVEALU:       # %bb.0:
+; XCVEALU-NEXT:    cv.sletu.d a0, a2, a0
+; XCVEALU-NEXT:    ret
+;
+; RV32I-LABEL: uge_i64:
+; RV32I:       # %bb.0:
+; RV32I-NEXT:    beq a1, a3, .LBB53_2
+; RV32I-NEXT:  # %bb.1:
+; RV32I-NEXT:    sltu a0, a1, a3
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+; RV32I-NEXT:  .LBB53_2:
+; RV32I-NEXT:    sltu a0, a0, a2
+; RV32I-NEXT:    xori a0, a0, 1
+; RV32I-NEXT:    ret
+  %c = icmp uge i64 %a, %b
   %r = zext i1 %c to i32
   ret i32 %r
 }
