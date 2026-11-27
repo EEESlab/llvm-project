@@ -2570,16 +2570,19 @@ void RISCVDAGToDAGISel::Select(SDNode *Node) {
       // the two 32-bit values.
       unsigned Opc = Opcode == RISCVISD::WADDAU ? RISCV::WADDAU : RISCV::WSUBAU;
       New = CurDAG->getMachineNode(Opc, DL, MVT::Untyped, Op0, Op1Lo, Op1Hi);
-    } else if (Opcode == RISCVISD::ADDD && Subtarget->hasVendorXCVealu() &&
-               isa<ConstantSDNode>(Op1Lo) && isa<ConstantSDNode>(Op1Hi) &&
+    } else if ((Opcode == RISCVISD::ADDD || Opcode == RISCVISD::XORD) &&
+               Subtarget->hasVendorXCVealu() && isa<ConstantSDNode>(Op1Lo) &&
+               isa<ConstantSDNode>(Op1Hi) &&
                isInt<5>(cast<ConstantSDNode>(Op1Lo)->getSExtValue()) &&
                cast<ConstantSDNode>(Op1Hi)->getSExtValue() ==
                    (cast<ConstantSDNode>(Op1Lo)->getSExtValue() < 0 ? -1 : 0)) {
-      // An add of a constant the 5-bit signed immediate holds: cv.addi.d.
-      // The constant is a pair: its low word in [-16, 15] and its high word
-      // the sign of the low one.
+      // An add/xor of a constant the 5-bit signed immediate holds:
+      // cv.addi.d, cv.xori.d. The constant is a pair: its low word in
+      // [-16, 15] and its high word the sign of the low one.
+      unsigned Opc =
+          Opcode == RISCVISD::ADDD ? RISCV::CV_ADDI_D : RISCV::CV_XORI_D;
       New = CurDAG->getMachineNode(
-          RISCV::CV_ADDI_D, DL, MVT::Untyped, Op0,
+          Opc, DL, MVT::Untyped, Op0,
           CurDAG->getSignedTargetConstant(
               cast<ConstantSDNode>(Op1Lo)->getSExtValue(), DL, MVT::i32));
     } else if ((Opcode == RISCVISD::SLLD || Opcode == RISCVISD::SRLD ||

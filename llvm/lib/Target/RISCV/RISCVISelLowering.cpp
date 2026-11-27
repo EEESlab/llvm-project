@@ -15680,11 +15680,20 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
     assert(N->getValueType(0) == MVT::i64 && !Subtarget.is64Bit() &&
            Subtarget.hasVendorXCVealu() && "Unexpected custom legalisation");
 
-    // With a constant operand the default expansion is better: each half
-    // folds with its half of the constant, nothing has to be materialised.
-    if (isa<ConstantSDNode>(N->getOperand(0)) ||
-        isa<ConstantSDNode>(N->getOperand(1)))
+    // With a constant operand the default expansion is usually better: each
+    // half folds with its half of the constant, nothing has to be
+    // materialised. The immediate form (cv.xori.d) wins only when the
+    // constant fits its 5-bit signed immediate and the default expansion
+    // touches both words: a negative constant for xor (the high word gets
+    // inverted). The node then carries the constant pair, Select picks the
+    // immediate form.
+    if (isa<ConstantSDNode>(N->getOperand(0)))
       break;
+    if (auto *C = dyn_cast<ConstantSDNode>(N->getOperand(1))) {
+      int64_t Imm = C->getSExtValue();
+      if (N->getOpcode() != ISD::XOR || !isInt<5>(Imm) || Imm >= 0)
+        break;
+    }
 
     // Expand to ANDD/ORD/XORD.
     auto [LHSLo, LHSHi] =
