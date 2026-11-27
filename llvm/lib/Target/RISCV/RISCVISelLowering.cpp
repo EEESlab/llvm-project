@@ -390,14 +390,15 @@ RISCVTargetLowering::RISCVTargetLowering(const TargetMachine &TM,
     setOperationAction({ISD::ADD, ISD::SUB}, MVT::i64, Custom);
     setOperationAction({ISD::SHL, ISD::SRL, ISD::SRA}, MVT::i64, Custom);
   } else if (Subtarget.hasVendorXCVealu()) {
-    // Custom legalize i64 ADD/SUB/AND/OR/XOR, SMIN/UMIN/SMAX/UMAX and SHL for
-    // RV32+XCVealu (cv.add.d, cv.sub.d, cv.and.d, cv.or.d, cv.xor.d, cv.min.d,
-    // cv.minu.d, cv.max.d, cv.maxu.d, cv.sll.d on register pairs).
+    // Custom legalize i64 ADD/SUB/AND/OR/XOR, SMIN/UMIN/SMAX/UMAX and SHL/SRL
+    // for RV32+XCVealu (cv.add.d, cv.sub.d, cv.and.d, cv.or.d, cv.xor.d,
+    // cv.min.d, cv.minu.d, cv.max.d, cv.maxu.d, cv.sll.d, cv.srl.d on register
+    // pairs).
     setOperationAction({ISD::ADD, ISD::SUB, ISD::AND, ISD::OR, ISD::XOR},
                        MVT::i64, Custom);
     setOperationAction({ISD::SMIN, ISD::UMIN, ISD::SMAX, ISD::UMAX}, MVT::i64,
                        Custom);
-    setOperationAction(ISD::SHL, MVT::i64, Custom);
+    setOperationAction({ISD::SHL, ISD::SRL}, MVT::i64, Custom);
   }
   if (!Subtarget.hasStdExtZmmul()) {
     setOperationAction({ISD::MUL, ISD::MULHS, ISD::MULHU}, XLenVT, Expand);
@@ -15707,17 +15708,19 @@ void RISCVTargetLowering::ReplaceNodeResults(SDNode *N,
 
     if (VT == MVT::i64 && Subtarget.hasVendorXCVealu() &&
         !Subtarget.hasStdExtP()) {
-      assert(!Subtarget.is64Bit() && N->getOpcode() == ISD::SHL &&
+      assert(!Subtarget.is64Bit() && N->getOpcode() != ISD::SRA &&
              "Unexpected custom legalisation");
 
-      // Expand to SLLD. The shift amount is a register pair as well: the
+      // Expand to SLLD/SRLD. The shift amount is a register pair as well: the
       // amount in the even register, zero in the odd one.
       auto [LHSLo, LHSHi] =
           DAG.SplitScalar(N->getOperand(0), DL, MVT::i32, MVT::i32);
       SDValue ShAmt = DAG.getZExtOrTrunc(N->getOperand(1), DL, MVT::i32);
+      unsigned Opc =
+          N->getOpcode() == ISD::SHL ? RISCVISD::SLLD : RISCVISD::SRLD;
       SDValue Res =
-          DAG.getNode(RISCVISD::SLLD, DL, DAG.getVTList(MVT::i32, MVT::i32),
-                      LHSLo, LHSHi, ShAmt, DAG.getConstant(0, DL, MVT::i32));
+          DAG.getNode(Opc, DL, DAG.getVTList(MVT::i32, MVT::i32), LHSLo, LHSHi,
+                      ShAmt, DAG.getConstant(0, DL, MVT::i32));
       Results.push_back(
           DAG.getNode(ISD::BUILD_PAIR, DL, MVT::i64, Res, Res.getValue(1)));
       return;
